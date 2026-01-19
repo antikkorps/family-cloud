@@ -291,6 +291,106 @@ crontab -e
 ./scripts/restore.sh --config
 ```
 
+### Disaster Recovery (Crash Total)
+
+En cas de perte totale du serveur, voici la procédure pour tout reconstruire depuis zéro.
+
+#### Prérequis à avoir sous la main
+
+- Accès au compte Cloudflare (Zero Trust + R2)
+- La clé `BACKUP_ENCRYPTION_KEY` (si chiffrement activé) - **à conserver dans un password manager**
+- Les credentials R2 (Access Key ID + Secret)
+
+#### Étape 1 : Préparer le nouveau serveur
+
+```bash
+# Installer les dépendances
+sudo apt update && sudo apt upgrade -y
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER
+sudo apt install rclone git age -y
+
+# Se reconnecter pour appliquer le groupe docker
+exit
+```
+
+#### Étape 2 : Configurer Rclone pour accéder à R2
+
+```bash
+rclone config
+
+# Créer le remote "r2" avec vos credentials Cloudflare R2
+# (voir section "Configuration de Rclone pour Cloudflare R2")
+
+# Vérifier l'accès aux backups
+rclone ls r2:nextcloud-backup/database/ | head -5
+```
+
+#### Étape 3 : Cloner le projet et configurer
+
+```bash
+cd ~
+git clone https://github.com/votre-user/nextcloud.git
+cd nextcloud
+
+# Créer le .env avec les mêmes valeurs qu'avant
+cp .env.example .env
+chmod 600 .env
+nano .env
+
+# IMPORTANT: Utiliser la même BACKUP_ENCRYPTION_KEY qu'avant !
+# Créer le répertoire de données
+mkdir -p ~/nextcloud/data
+sudo chown -R 33:33 ~/nextcloud/data
+```
+
+#### Étape 4 : Récupérer le token Cloudflare Tunnel
+
+1. Aller sur [Cloudflare Zero Trust](https://one.dash.cloudflare.com/)
+2. **Networks** → **Tunnels** → Sélectionner votre tunnel
+3. **Configure** → Copier le token
+4. Mettre à jour `CLOUDFLARE_TUNNEL_TOKEN` dans `.env`
+
+#### Étape 5 : Lancer l'infrastructure
+
+```bash
+# Lancer les conteneurs (sans données)
+docker compose up -d
+
+# Attendre que PostgreSQL soit prêt
+sleep 30
+docker compose ps
+```
+
+#### Étape 6 : Restaurer les données
+
+```bash
+# Restaurer la base de données (prend le backup le plus récent)
+./scripts/restore.sh --db
+
+# Restaurer les fichiers utilisateurs (peut prendre du temps selon la taille)
+./scripts/restore.sh --data
+
+# Restaurer la configuration Nextcloud
+./scripts/restore.sh --config
+
+# Redémarrer pour appliquer la config
+docker compose restart
+```
+
+#### Étape 7 : Vérifications post-restauration
+
+```bash
+# Vérifier que Nextcloud fonctionne
+docker compose logs nextcloud | tail -20
+
+# Scanner les fichiers pour s'assurer que tout est indexé
+docker exec -u www-data nextcloud-app php occ files:scan --all
+
+# Réparer les éventuels problèmes
+docker exec -u www-data nextcloud-app php occ maintenance:repair
+```
+
 ---
 
 ## Commandes Utiles
