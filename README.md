@@ -328,6 +328,9 @@ sudo ncdu /mnt/nextcloud_data
 
 ```
 nextcloud/
+├── .github/
+│   └── workflows/
+│       └── deploy.yml      # GitHub Action pour déploiement auto
 ├── docker-compose.yml      # Orchestration des services
 ├── .env.example            # Template des variables d'environnement
 ├── .env                    # Variables d'environnement (non versionné)
@@ -342,6 +345,55 @@ nextcloud/
 │   └── restore.sh          # Script de restauration
 └── backups/                # Dumps locaux temporaires (non versionné)
 ```
+
+---
+
+## CI/CD - Déploiement Automatique
+
+Le projet inclut une GitHub Action qui déploie automatiquement sur le VPS à chaque PR mergée sur `main`.
+
+### Configuration des Secrets GitHub
+
+**Settings** → **Secrets and variables** → **Actions** → **New repository secret**
+
+| Secret | Description | Exemple |
+|--------|-------------|---------|
+| `VPS_HOST` | IP ou hostname du VPS | `123.45.67.89` |
+| `VPS_USER` | Utilisateur SSH | `deploy` |
+| `VPS_SSH_KEY` | Clé privée SSH (contenu complet) | `-----BEGIN OPENSSH...` |
+| `VPS_PORT` | Port SSH (optionnel, défaut: 22) | `22` |
+| `PROJECT_PATH` | Chemin du projet sur le VPS (optionnel) | `~/nextcloud` |
+
+### Préparation du VPS
+
+```bash
+# Créer un utilisateur dédié au déploiement
+sudo adduser --disabled-password deploy
+sudo usermod -aG docker deploy
+
+# Générer une clé SSH pour GitHub Actions
+sudo -u deploy ssh-keygen -t ed25519 -C "github-actions" -f /home/deploy/.ssh/github_actions -N ""
+
+# Autoriser la clé
+sudo -u deploy bash -c 'cat ~/.ssh/github_actions.pub >> ~/.ssh/authorized_keys'
+
+# Afficher la clé privée (à copier dans VPS_SSH_KEY)
+sudo cat /home/deploy/.ssh/github_actions
+
+# Cloner le projet
+sudo -u deploy git clone https://github.com/votre-user/nextcloud.git /home/deploy/nextcloud
+```
+
+### Fonctionnement
+
+Déclenchement :
+- **Automatique** : à chaque PR mergée sur `main`
+- **Manuel** : via l'onglet Actions de GitHub
+
+Actions effectuées :
+1. Connexion SSH au VPS
+2. Pull des derniers changements
+3. Redémarrage intelligent (uniquement si docker-compose.yml ou configs modifiés)
 
 ---
 

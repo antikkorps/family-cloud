@@ -1,0 +1,46 @@
+name: Deploy to Hetzner VPS
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+  workflow_dispatch:  # Permet le déclenchement manuel
+
+jobs:
+  deploy:
+    name: Deploy Nextcloud
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            cd ${{ secrets.PROJECT_PATH || '~/nextcloud' }}
+
+            # Pull les derniers changements
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Vérifier si docker-compose.yml a changé
+            if git diff HEAD~1 --name-only | grep -q "docker-compose.yml"; then
+              echo "docker-compose.yml modifié, recréation des conteneurs..."
+              docker compose up -d --force-recreate
+            else
+              echo "Pas de changement dans docker-compose.yml"
+              # Redémarrer uniquement si nécessaire (config Caddy, PHP, etc.)
+              if git diff HEAD~1 --name-only | grep -qE "(Caddyfile|custom.ini)"; then
+                echo "Configuration modifiée, redémarrage..."
+                docker compose restart
+              fi
+            fi
+
+            # Afficher le statut
+            docker compose ps
