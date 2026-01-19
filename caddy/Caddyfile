@@ -1,12 +1,11 @@
-# Configuration globale Caddy
+# Configuration Caddy pour Cloudflare Tunnel
+# SSL géré par Cloudflare - Caddy écoute en HTTP local
 {
-	# Email pour Let's Encrypt
-	email {$ACME_EMAIL:admin@example.com}
+	# Pas de HTTPS automatique (Cloudflare s'en charge)
+	auto_https off
 
-	# Activer HTTP/3
 	servers {
-		protocols h1 h2 h3
-		# Limites de connexion (protection DoS basique)
+		protocols h1 h2
 		timeouts {
 			read_body 60s
 			read_header 10s
@@ -16,8 +15,8 @@
 	}
 }
 
-# Configuration Nextcloud
-{$DOMAIN} {
+# Écoute HTTP sur port 80
+:80 {
 	# Logs
 	log {
 		output file /data/logs/nextcloud.log {
@@ -62,14 +61,12 @@
 		path /ocs/v1.php/* /ocs/v2.php/*
 	}
 	handle @bruteforce {
-		# Header pour identifier les tentatives (utilisé par Fail2ban)
 		header X-Nextcloud-Auth "protected"
 
-		# Laisser passer vers PHP-FPM
 		root * /var/www/html
 		php_fastcgi nextcloud:9000 {
 			trusted_proxies private_ranges
-			env REMOTE_ADDR {http.request.header.X-Forwarded-For}
+			env REMOTE_ADDR {http.request.header.CF-Connecting-IP}
 			read_timeout 3600s
 			write_timeout 3600s
 		}
@@ -111,18 +108,16 @@
 	# Route principale vers PHP-FPM
 	# ==========================================
 	route {
-		# Essayer d'abord le fichier, puis index.php
 		@notStatic not file
 		rewrite @notStatic /index.php{uri}
 
-		# Configuration PHP-FPM
 		@phpFiles path *.php
 		handle @phpFiles {
 			root * /var/www/html
 			php_fastcgi nextcloud:9000 {
-				# Transmission de l'IP réelle
+				# IP réelle via header Cloudflare
 				trusted_proxies private_ranges
-				env REMOTE_ADDR {http.request.header.X-Forwarded-For}
+				env REMOTE_ADDR {http.request.header.CF-Connecting-IP}
 
 				# Timeouts pour gros uploads
 				read_timeout 3600s
@@ -130,7 +125,6 @@
 			}
 		}
 
-		# Servir les fichiers statiques
 		root * /var/www/html
 		file_server
 	}

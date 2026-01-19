@@ -1,6 +1,6 @@
-# Nextcloud sur Hetzner VPS avec Docker
+# Nextcloud Auto-Hébergé (Dell Optiplex + Cloudflare Tunnel)
 
-Infrastructure IaC pour héberger Nextcloud sur un VPS Hetzner (CX23) avec Docker et Caddy.
+Infrastructure IaC pour héberger Nextcloud sur un serveur local (Dell Optiplex) avec Docker et Cloudflare Tunnel pour l'accès externe sécurisé.
 
 ## Stack Technique
 
@@ -8,10 +8,11 @@ Infrastructure IaC pour héberger Nextcloud sur un VPS Hetzner (CX23) avec Docke
 |-----------|-------------|
 | OS | Debian 12 / Ubuntu 22.04 |
 | Orchestration | Docker Compose |
-| Reverse Proxy | Caddy (HTTPS automatique) |
+| Accès externe | Cloudflare Tunnel (Zero Trust) |
+| Reverse Proxy | Caddy (HTTP local) |
 | Base de données | PostgreSQL 16 |
 | Cache | Redis 7 |
-| Stockage | Volume Hetzner 100 Go |
+| Stockage | SSD local |
 | Backup | Rclone → Cloudflare R2 |
 
 ## Architecture
@@ -20,10 +21,16 @@ Infrastructure IaC pour héberger Nextcloud sur un VPS Hetzner (CX23) avec Docke
 ┌─────────────────────────────────────────────────────────────┐
 │                        Internet                              │
 └─────────────────────────┬───────────────────────────────────┘
-                          │ :80/:443
+                          │ HTTPS (géré par Cloudflare)
+┌─────────────────────────▼───────────────────────────────────┐
+│               Cloudflare Tunnel (cloudflared)                │
+│               - Connexion sortante uniquement                │
+│               - Pas de port ouvert sur le routeur            │
+└─────────────────────────┬───────────────────────────────────┘
+                          │ HTTP interne
 ┌─────────────────────────▼───────────────────────────────────┐
 │                    Caddy (Reverse Proxy)                     │
-│                    - HTTPS automatique                       │
+│                    - HTTP local (port 80)                    │
 │                    - Headers sécurité                        │
 └─────────────────────────┬───────────────────────────────────┘
                           │ :9000 (FastCGI)
@@ -37,25 +44,26 @@ Infrastructure IaC pour héberger Nextcloud sur un VPS Hetzner (CX23) avec Docke
 └─────────┼────────────────────────────────────────────────────┘
           │
 ┌─────────▼────────────────────────────────────────────────────┐
-│              Volume Hetzner (/mnt/nextcloud_data)            │
-│                        100 Go                                 │
+│                     SSD Local (DATA_PATH)                    │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 ## Prérequis
 
-- VPS Hetzner CX23 (2 vCPU, 4 Go RAM)
-- Volume Hetzner 100 Go attaché au VPS
-- Nom de domaine pointant vers l'IP du VPS
-- Compte Cloudflare avec R2 activé (pour les backups)
+- Serveur local (ex: Dell Optiplex, mini PC, ou autre)
+- Stockage suffisant (SSD recommandé)
+- Nom de domaine géré par Cloudflare
+- Compte Cloudflare avec :
+  - Zero Trust (gratuit) pour le tunnel
+  - R2 activé (pour les backups)
 
 ---
 
 ## Guide de Déploiement
 
-### 1. Préparation du VPS
+### 1. Préparation du Serveur
 
-Connectez-vous en SSH à votre VPS et installez les dépendances :
+Installez les dépendances sur votre serveur :
 
 ```bash
 # Mise à jour du système
@@ -75,31 +83,34 @@ sudo apt install git htop ncdu -y
 exit
 ```
 
-### 2. Formatage et Montage du Volume Hetzner
+### 2. Configuration du Cloudflare Tunnel
 
-Le volume doit être attaché via le panneau Hetzner Cloud avant ces étapes.
+Le tunnel permet d'exposer Nextcloud sur internet sans ouvrir de port sur votre routeur.
+
+#### Création du Tunnel
+
+1. Connectez-vous à [Cloudflare Zero Trust](https://one.dash.cloudflare.com/)
+2. Allez dans **Networks** → **Tunnels**
+3. Cliquez sur **Create a tunnel**
+4. Choisissez **Cloudflared** comme type
+5. Donnez un nom au tunnel (ex: `nextcloud-home`)
+6. Copiez le **token** affiché (il commence par `eyJ...`)
+
+#### Configuration du DNS
+
+Dans la configuration du tunnel, ajoutez un **Public Hostname** :
+- **Subdomain** : `nextcloud` (ou autre)
+- **Domain** : votre domaine Cloudflare
+- **Service** : `http://caddy:80`
+
+#### Préparation du Répertoire de Données
 
 ```bash
-# Identifier le volume (généralement /dev/sdb ou /dev/disk/by-id/scsi-0HC_Volume_*)
-lsblk
-
-# Formater le volume (ATTENTION: efface toutes les données!)
-sudo mkfs.ext4 -L nextcloud_data /dev/sdb
-
-# Créer le point de montage
-sudo mkdir -p /mnt/nextcloud_data
-
-# Monter le volume
-sudo mount /dev/sdb /mnt/nextcloud_data
-
-# Ajouter au fstab pour le montage automatique
-echo '/dev/disk/by-label/nextcloud_data /mnt/nextcloud_data ext4 defaults,nofail 0 2' | sudo tee -a /etc/fstab
-
-# Vérifier le montage
-df -h /mnt/nextcloud_data
+# Créer le répertoire pour les données Nextcloud
+mkdir -p ~/nextcloud/data
 
 # Définir les permissions
-sudo chown -R 33:33 /mnt/nextcloud_data  # UID 33 = www-data dans le conteneur
+sudo chown -R 33:33 ~/nextcloud/data  # UID 33 = www-data dans le conteneur
 ```
 
 ### 3. Configuration de Rclone pour Cloudflare R2
@@ -140,6 +151,10 @@ cp .env.example .env
 chmod 600 .env
 
 nano .env
+
+# Remplir les variables importantes :
+# - CLOUDFLARE_TUNNEL_TOKEN : le token récupéré à l'étape 2
+# - DATA_PATH : chemin vers les données (ex: /home/user/nextcloud/data)
 
 # Générer des mots de passe sécurisés
 echo "POSTGRES_PASSWORD=$(openssl rand -base64 32)"
@@ -316,14 +331,14 @@ docker exec -u www-data nextcloud-app php occ upgrade
 ### Surveillance
 
 ```bash
-# Espace disque
-df -h /mnt/nextcloud_data
+# Espace disque (adapter DATA_PATH selon votre configuration)
+df -h ~/nextcloud/data
 
 # Utilisation mémoire/CPU
 htop
 
 # Taille des données Nextcloud
-sudo ncdu /mnt/nextcloud_data
+sudo ncdu ~/nextcloud/data
 ```
 
 ---
@@ -335,7 +350,7 @@ nextcloud/
 ├── .github/
 │   └── workflows/
 │       └── deploy.yml      # GitHub Action pour déploiement auto
-├── docker-compose.yml      # Orchestration des services
+├── docker-compose.yml      # Orchestration des services (inclut cloudflared)
 ├── .env.example            # Template des variables d'environnement
 ├── .env                    # Variables d'environnement (non versionné)
 ├── .gitignore
@@ -361,7 +376,7 @@ nextcloud/
 
 ## CI/CD - Déploiement Automatique
 
-Le projet inclut une GitHub Action qui déploie automatiquement sur le VPS à chaque PR mergée sur `main`.
+Le projet inclut une GitHub Action qui déploie automatiquement sur le serveur à chaque PR mergée sur `main`.
 
 ### Configuration des Secrets GitHub
 
@@ -369,13 +384,15 @@ Le projet inclut une GitHub Action qui déploie automatiquement sur le VPS à ch
 
 | Secret | Description | Exemple |
 |--------|-------------|---------|
-| `VPS_HOST` | IP ou hostname du VPS | `123.45.67.89` |
+| `VPS_HOST` | IP locale ou hostname du serveur | `192.168.1.100` |
 | `VPS_USER` | Utilisateur SSH | `deploy` |
 | `VPS_SSH_KEY` | Clé privée SSH (contenu complet) | `-----BEGIN OPENSSH...` |
 | `VPS_PORT` | Port SSH (optionnel, défaut: 22) | `22` |
-| `PROJECT_PATH` | Chemin du projet sur le VPS (optionnel) | `~/nextcloud` |
+| `PROJECT_PATH` | Chemin du projet sur le serveur (optionnel) | `~/nextcloud` |
 
-### Préparation du VPS
+> **Note** : Pour un déploiement depuis GitHub vers un serveur local, vous aurez besoin soit d'un runner GitHub auto-hébergé, soit d'exposer temporairement le SSH via un autre tunnel.
+
+### Préparation du Serveur
 
 ```bash
 # Créer un utilisateur dédié au déploiement
@@ -410,9 +427,11 @@ Actions effectuées :
 
 ## Sécurité
 
+- **Aucun port ouvert** sur le routeur (tunnel sortant uniquement)
+- HTTPS géré par Cloudflare (certificat automatique)
 - Réseau backend Docker **isolé** (internal: true)
-- HTTPS automatique via Let's Encrypt
 - Headers de sécurité (HSTS, CSP, etc.)
+- IP réelle transmise via header `CF-Connecting-IP`
 - Mots de passe générés aléatoirement
 - Pas d'exposition directe de PostgreSQL/Redis
 - Fail2ban pour la protection brute force
@@ -540,8 +559,7 @@ fi
 sudo ufw default deny incoming
 sudo ufw default allow outgoing
 sudo ufw allow ssh
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
+# Pas besoin d'ouvrir 80/443 : le tunnel Cloudflare utilise des connexions sortantes
 sudo ufw enable
 
 # Désactiver l'accès root SSH
@@ -559,6 +577,9 @@ sudo systemctl restart sshd
 # Vérifier les conteneurs
 docker compose ps
 
+# Vérifier le tunnel Cloudflare
+docker compose logs cloudflared
+
 # Vérifier les logs Caddy
 docker compose logs caddy
 
@@ -569,8 +590,8 @@ docker compose logs nextcloud
 ### Problèmes de permissions
 
 ```bash
-# Corriger les permissions des données
-sudo chown -R 33:33 /mnt/nextcloud_data
+# Corriger les permissions des données (adapter le chemin)
+sudo chown -R 33:33 ~/nextcloud/data
 docker exec nextcloud-app chown -R www-data:www-data /var/www/html
 ```
 

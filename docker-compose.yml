@@ -1,15 +1,27 @@
 services:
   # ===========================================
-  # Caddy - Reverse Proxy avec HTTPS automatique
+  # Cloudflare Tunnel - Accès sécurisé sans port ouvert
+  # ===========================================
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: nextcloud-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARE_TUNNEL_TOKEN}
+    networks:
+      - frontend
+    depends_on:
+      - caddy
+
+  # ===========================================
+  # Caddy - Reverse Proxy local (HTTP interne)
   # ===========================================
   caddy:
     image: caddy:2-alpine
     container_name: nextcloud-caddy
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"  # HTTP/3
+    # Pas de ports exposés - accessible uniquement via le tunnel
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -32,7 +44,7 @@ services:
     restart: unless-stopped
     volumes:
       - nextcloud_www:/var/www/html
-      - /mnt/nextcloud_data:/var/www/html/data
+      - ${DATA_PATH}:/var/www/html/data
       - ./nextcloud/custom.ini:/usr/local/etc/php/conf.d/custom.ini:ro
     networks:
       - backend
@@ -77,7 +89,7 @@ services:
     restart: unless-stopped
     volumes:
       - nextcloud_www:/var/www/html
-      - /mnt/nextcloud_data:/var/www/html/data
+      - ${DATA_PATH}:/var/www/html/data
       - ./nextcloud/custom.ini:/usr/local/etc/php/conf.d/custom.ini:ro
     networks:
       - backend
