@@ -454,19 +454,21 @@ Fortement recommandé pour sécuriser les comptes utilisateurs :
 
 Apps 2FA recommandées : Aegis (Android), Raivo OTP (iOS), Bitwarden.
 
-### Chiffrement des Backups
+### Chiffrement des Backups (optionnel)
 
-Les backups sont chiffrés avec `age` si `BACKUP_ENCRYPTION_KEY` est défini dans `.env`.
+Cloudflare R2 chiffre déjà les données au repos. Le chiffrement côté client est une couche supplémentaire, utile si :
+- Vous ne faites pas confiance à Cloudflare
+- Vous voulez une protection si vos credentials R2 fuitent
 
+**Sans chiffrement côté client** (par défaut) : laisser `BACKUP_ENCRYPTION_KEY=` vide.
+
+**Avec chiffrement** :
 ```bash
-# Générer une clé de chiffrement
+# Générer et stocker dans un password manager
 openssl rand -base64 32
 
 # Ajouter dans .env
-BACKUP_ENCRYPTION_KEY=votre_cle_generee
-
-# IMPORTANT: Conservez cette clé en lieu sûr!
-# Sans elle, impossible de restaurer les backups.
+BACKUP_ENCRYPTION_KEY=votre_cle
 ```
 
 ---
