@@ -7,8 +7,9 @@
 # Ce script :
 # 1. Active le mode maintenance
 # 2. Dump la base de données PostgreSQL
-# 3. Synchronise vers Cloudflare R2 avec Rclone
-# 4. Désactive le mode maintenance
+# 3. Chiffre les backups (si BACKUP_ENCRYPTION_KEY est défini)
+# 4. Synchronise vers Cloudflare R2 avec Rclone
+# 5. Désactive le mode maintenance
 # ===========================================
 
 set -euo pipefail
@@ -36,6 +37,7 @@ BACKUP_PATH="${BACKUP_PATH:-${PROJECT_DIR}/backups}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
 R2_BUCKET_NAME="${R2_BUCKET_NAME:-nextcloud-backup}"
 DATA_PATH="${DATA_PATH:-/mnt/nextcloud_data}"
+BACKUP_ENCRYPTION_KEY="${BACKUP_ENCRYPTION_KEY:-}"
 
 # Mode de backup (full par défaut)
 BACKUP_MODE="${1:-full}"
@@ -65,6 +67,16 @@ check_prerequisites() {
         error "rclone n'est pas installé. Installez-le avec: sudo apt install rclone"
     fi
 
+    # Vérifier age si chiffrement activé
+    if [[ -n "$BACKUP_ENCRYPTION_KEY" ]]; then
+        if ! command -v age &> /dev/null; then
+            error "age n'est pas installé mais BACKUP_ENCRYPTION_KEY est défini. Installez-le avec: sudo apt install age"
+        fi
+        log "Chiffrement activé (age)"
+    else
+        log "ATTENTION: Chiffrement désactivé (BACKUP_ENCRYPTION_KEY non défini)"
+    fi
+
     # Vérifier que Docker est en cours d'exécution
     if ! docker info &> /dev/null; then
         error "Docker n'est pas en cours d'exécution"
@@ -79,6 +91,22 @@ check_prerequisites() {
     mkdir -p "$BACKUP_PATH"
 
     log "Prérequis OK"
+}
+
+# Chiffrer un fichier avec age
+encrypt_file() {
+    local input_file="$1"
+    local output_file="${input_file}.age"
+
+    if [[ -n "$BACKUP_ENCRYPTION_KEY" ]]; then
+        log "Chiffrement de $(basename "$input_file")..."
+        echo "$BACKUP_ENCRYPTION_KEY" | age -p -o "$output_file" "$input_file" 2>/dev/null
+        # Supprimer le fichier non chiffré
+        rm -f "$input_file"
+        echo "$output_file"
+    else
+        echo "$input_file"
+    fi
 }
 
 # Activer le mode maintenance
@@ -110,6 +138,9 @@ backup_database() {
 
     log "Base de données sauvegardée: $db_backup_file ($(du -h "$db_backup_file" | cut -f1))"
 
+    # Chiffrer si activé
+    db_backup_file=$(encrypt_file "$db_backup_file")
+
     # Upload vers R2
     log "Upload du dump vers R2..."
     rclone copy "$db_backup_file" "r2:${R2_BUCKET_NAME}/database/" \
@@ -120,14 +151,21 @@ backup_database() {
     log "Dump uploadé vers R2"
 }
 
-# Backup des données Nextcloud
+# Backup des données Nextcloud (avec rclone crypt si chiffrement activé)
 backup_data() {
     log "Synchronisation des données vers R2..."
     log "Chemin des données: $DATA_PATH"
 
+    local remote="r2:${R2_BUCKET_NAME}/data/"
+
+    # Si chiffrement activé, utiliser rclone crypt
+    if [[ -n "$BACKUP_ENCRYPTION_KEY" ]]; then
+        log "Utilisation du chiffrement rclone crypt..."
+        remote="r2-crypt:data/"
+    fi
+
     # Synchroniser les données vers R2
-    # Utilise --transfers=4 pour paralléliser et --checkers=8 pour vérifier
-    rclone sync "$DATA_PATH" "r2:${R2_BUCKET_NAME}/data/" \
+    rclone sync "$DATA_PATH" "$remote" \
         --transfers=4 \
         --checkers=8 \
         --progress \
@@ -155,6 +193,9 @@ backup_config() {
 
     log "Configuration sauvegardée: $config_backup_file"
 
+    # Chiffrer si activé
+    config_backup_file=$(encrypt_file "$config_backup_file")
+
     # Upload vers R2
     rclone copy "$config_backup_file" "r2:${R2_BUCKET_NAME}/config/" \
         --progress \
@@ -168,8 +209,8 @@ backup_config() {
 cleanup_local() {
     log "Nettoyage des backups locaux de plus de ${BACKUP_RETENTION_DAYS} jours..."
 
-    find "$BACKUP_PATH" -type f -name "*.sql.gz" -mtime +${BACKUP_RETENTION_DAYS} -delete 2>/dev/null || true
-    find "$BACKUP_PATH" -type f -name "*.tar.gz" -mtime +${BACKUP_RETENTION_DAYS} -delete 2>/dev/null || true
+    find "$BACKUP_PATH" -type f -name "*.sql.gz*" -mtime +${BACKUP_RETENTION_DAYS} -delete 2>/dev/null || true
+    find "$BACKUP_PATH" -type f -name "*.tar.gz*" -mtime +${BACKUP_RETENTION_DAYS} -delete 2>/dev/null || true
     find "$BACKUP_PATH" -type f -name "*.log" -mtime +${BACKUP_RETENTION_DAYS} -delete 2>/dev/null || true
 
     log "Nettoyage local terminé"
@@ -200,6 +241,7 @@ main() {
     log "=========================================="
     log "Démarrage du backup Nextcloud"
     log "Mode: $BACKUP_MODE"
+    log "Chiffrement: $([ -n "$BACKUP_ENCRYPTION_KEY" ] && echo "activé" || echo "désactivé")"
     log "=========================================="
 
     check_prerequisites

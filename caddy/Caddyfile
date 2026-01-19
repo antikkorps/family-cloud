@@ -6,6 +6,13 @@
 	# Activer HTTP/3
 	servers {
 		protocols h1 h2 h3
+		# Limites de connexion (protection DoS basique)
+		timeouts {
+			read_body 60s
+			read_header 10s
+			write 120s
+			idle 300s
+		}
 	}
 }
 
@@ -37,6 +44,35 @@
 		# Supprimer les headers révélateurs
 		-Server
 		-X-Powered-By
+	}
+
+	# ==========================================
+	# Endpoint de monitoring /health
+	# ==========================================
+	handle /health {
+		respond "OK" 200
+	}
+
+	# ==========================================
+	# Protection des endpoints sensibles
+	# ==========================================
+	@bruteforce {
+		path /login /index.php/login
+		path /remote.php/webdav* /remote.php/dav*
+		path /ocs/v1.php/* /ocs/v2.php/*
+	}
+	handle @bruteforce {
+		# Header pour identifier les tentatives (utilisé par Fail2ban)
+		header X-Nextcloud-Auth "protected"
+
+		# Laisser passer vers PHP-FPM
+		root * /var/www/html
+		php_fastcgi nextcloud:9000 {
+			trusted_proxies private_ranges
+			env REMOTE_ADDR {http.request.header.X-Forwarded-For}
+			read_timeout 3600s
+			write_timeout 3600s
+		}
 	}
 
 	# ==========================================
@@ -72,14 +108,8 @@
 	}
 
 	# ==========================================
-	# PHP-FPM pour Nextcloud
-	# ==========================================
-	@php {
-		path *.php
-		path /remote.php/* /index.php/* /status.php /ocs/*
-	}
-
 	# Route principale vers PHP-FPM
+	# ==========================================
 	route {
 		# Essayer d'abord le fichier, puis index.php
 		@notStatic not file

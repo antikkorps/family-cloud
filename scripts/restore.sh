@@ -8,6 +8,8 @@
 #   ./restore.sh --list              # Lister les backups disponibles
 #   ./restore.sh --db 20240115       # Restaurer la DB du 15 janvier 2024
 #   ./restore.sh --data              # Restaurer les données (dernier backup)
+#
+# Note: Si les backups sont chiffrés, BACKUP_ENCRYPTION_KEY doit être défini
 # ===========================================
 
 set -euo pipefail
@@ -31,6 +33,7 @@ fi
 BACKUP_PATH="${BACKUP_PATH:-${PROJECT_DIR}/backups}"
 R2_BUCKET_NAME="${R2_BUCKET_NAME:-nextcloud-backup}"
 DATA_PATH="${DATA_PATH:-/mnt/nextcloud_data}"
+BACKUP_ENCRYPTION_KEY="${BACKUP_ENCRYPTION_KEY:-}"
 
 # ===========================================
 # Fonctions
@@ -45,6 +48,26 @@ error() {
     exit 1
 }
 
+# Déchiffrer un fichier avec age
+decrypt_file() {
+    local input_file="$1"
+
+    # Vérifier si le fichier est chiffré (extension .age)
+    if [[ "$input_file" == *.age ]]; then
+        if [[ -z "$BACKUP_ENCRYPTION_KEY" ]]; then
+            error "Fichier chiffré détecté mais BACKUP_ENCRYPTION_KEY n'est pas défini"
+        fi
+
+        local output_file="${input_file%.age}"
+        log "Déchiffrement de $(basename "$input_file")..."
+        echo "$BACKUP_ENCRYPTION_KEY" | age -d -o "$output_file" "$input_file" 2>/dev/null || error "Échec du déchiffrement"
+        rm -f "$input_file"
+        echo "$output_file"
+    else
+        echo "$input_file"
+    fi
+}
+
 # Lister les backups disponibles
 list_backups() {
     log "Backups de base de données disponibles:"
@@ -53,6 +76,13 @@ list_backups() {
     echo ""
     log "Backups de configuration disponibles:"
     rclone ls "r2:${R2_BUCKET_NAME}/config/" 2>/dev/null | sort -r | head -20
+
+    echo ""
+    if [[ -n "$BACKUP_ENCRYPTION_KEY" ]]; then
+        log "Note: Clé de déchiffrement configurée"
+    else
+        log "Note: Pas de clé de déchiffrement configurée (BACKUP_ENCRYPTION_KEY)"
+    fi
 }
 
 # Restaurer la base de données
@@ -85,6 +115,9 @@ restore_database() {
 
     local db_file="${BACKUP_PATH}/${timestamp}"
 
+    # Déchiffrer si nécessaire
+    db_file=$(decrypt_file "$db_file")
+
     # Activer le mode maintenance
     log "Activation du mode maintenance..."
     docker exec nextcloud-app php occ maintenance:mode --on || true
@@ -104,6 +137,11 @@ restore_database() {
 restore_data() {
     log "ATTENTION: Cette opération va synchroniser les données depuis R2"
     log "Les fichiers locaux non présents sur R2 seront supprimés!"
+
+    if [[ -n "$BACKUP_ENCRYPTION_KEY" ]]; then
+        log "Note: Les données seront déchiffrées automatiquement (rclone crypt)"
+    fi
+
     read -p "Continuer? (y/N) " -n 1 -r
     echo
 
@@ -116,9 +154,17 @@ restore_data() {
     log "Activation du mode maintenance..."
     docker exec nextcloud-app php occ maintenance:mode --on || true
 
+    local remote="r2:${R2_BUCKET_NAME}/data/"
+
+    # Si chiffrement activé, utiliser rclone crypt
+    if [[ -n "$BACKUP_ENCRYPTION_KEY" ]]; then
+        log "Utilisation du déchiffrement rclone crypt..."
+        remote="r2-crypt:data/"
+    fi
+
     # Synchroniser depuis R2
     log "Synchronisation des données depuis R2..."
-    rclone sync "r2:${R2_BUCKET_NAME}/data/" "$DATA_PATH/" \
+    rclone sync "$remote" "$DATA_PATH/" \
         --transfers=4 \
         --checkers=8 \
         --progress || error "Échec de la synchronisation"
@@ -164,12 +210,17 @@ restore_config() {
     mkdir -p "$BACKUP_PATH"
     rclone copy "r2:${R2_BUCKET_NAME}/config/${timestamp}" "$BACKUP_PATH/" || error "Échec du téléchargement"
 
+    local config_file="${BACKUP_PATH}/${timestamp}"
+
+    # Déchiffrer si nécessaire
+    config_file=$(decrypt_file "$config_file")
+
     # Restaurer dans le volume Docker
     log "Restauration de la configuration..."
     docker run --rm \
         -v nextcloud_www:/dest \
         -v "${BACKUP_PATH}:/backup:ro" \
-        alpine sh -c "cd /dest && tar xzf /backup/${timestamp}" || error "Échec de la restauration"
+        alpine sh -c "cd /dest && tar xzf /backup/$(basename "$config_file")" || error "Échec de la restauration"
 
     log "Configuration restaurée avec succès!"
     log "Redémarrez les conteneurs: docker compose restart"
@@ -190,6 +241,8 @@ show_help() {
     echo "  --help          Afficher cette aide"
     echo ""
     echo "Le timestamp est optionnel. Sans timestamp, le backup le plus récent est utilisé."
+    echo ""
+    echo "Si les backups sont chiffrés, définissez BACKUP_ENCRYPTION_KEY dans .env"
 }
 
 case "${1:-}" in

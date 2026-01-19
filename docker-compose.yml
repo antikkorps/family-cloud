@@ -62,10 +62,11 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "php", "-v"]
+      test: ["CMD-SHELL", "php -f /var/www/html/occ status | grep -q 'installed: true'"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 120s
 
   # ===========================================
   # Nextcloud Cron - Tâches planifiées
@@ -124,8 +125,10 @@ services:
       - redis_data:/data
     networks:
       - backend
+    environment:
+      - REDISCLI_AUTH=${REDIS_PASSWORD}
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5

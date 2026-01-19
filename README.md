@@ -135,12 +135,20 @@ cd nextcloud
 
 # Copier et éditer la configuration
 cp .env.example .env
+
+# IMPORTANT: Restreindre les permissions du fichier .env
+chmod 600 .env
+
 nano .env
 
 # Générer des mots de passe sécurisés
 echo "POSTGRES_PASSWORD=$(openssl rand -base64 32)"
 echo "REDIS_PASSWORD=$(openssl rand -base64 32)"
 echo "NEXTCLOUD_ADMIN_PASSWORD=$(openssl rand -base64 24)"
+echo "BACKUP_ENCRYPTION_KEY=$(openssl rand -base64 32)"
+
+# Installer age pour le chiffrement des backups
+sudo apt install age -y
 ```
 
 ### 5. Lancer le Projet
@@ -331,6 +339,7 @@ nextcloud/
 ├── .env.example            # Template des variables d'environnement
 ├── .env                    # Variables d'environnement (non versionné)
 ├── .gitignore
+├── LICENSE                 # Licence MIT
 ├── README.md
 ├── caddy/
 │   └── Caddyfile           # Configuration du reverse proxy
@@ -340,10 +349,11 @@ nextcloud/
 ├── nextcloud/
 │   └── custom.ini          # Configuration PHP personnalisée
 ├── scripts/
-│   ├── backup.sh           # Script de backup vers R2
+│   ├── backup.sh           # Script de backup chiffré vers R2
 │   ├── restore.sh          # Script de restauration
 │   ├── post-install.sh     # Configuration post-installation
-│   └── setup-fail2ban.sh   # Installation de Fail2ban
+│   ├── setup-fail2ban.sh   # Installation de Fail2ban
+│   └── health-check.sh     # Génère status.json pour monitoring
 └── backups/                # Dumps locaux temporaires (non versionné)
 ```
 
@@ -433,6 +443,93 @@ fail2ban-client status nextcloud
 # Débannir une IP
 fail2ban-client set nextcloud unbanip 1.2.3.4
 ```
+
+### Authentification à Deux Facteurs (2FA)
+
+Fortement recommandé pour sécuriser les comptes utilisateurs :
+
+1. Connectez-vous en tant qu'admin
+2. **Apps** → **Sécurité** → Installer **Two-Factor TOTP Provider**
+3. Chaque utilisateur peut activer le 2FA dans **Paramètres** → **Sécurité**
+
+Apps 2FA recommandées : Aegis (Android), Raivo OTP (iOS), Bitwarden.
+
+### Chiffrement des Backups
+
+Les backups sont chiffrés avec `age` si `BACKUP_ENCRYPTION_KEY` est défini dans `.env`.
+
+```bash
+# Générer une clé de chiffrement
+openssl rand -base64 32
+
+# Ajouter dans .env
+BACKUP_ENCRYPTION_KEY=votre_cle_generee
+
+# IMPORTANT: Conservez cette clé en lieu sûr!
+# Sans elle, impossible de restaurer les backups.
+```
+
+---
+
+## Monitoring
+
+### Endpoint /health
+
+Caddy expose un endpoint `/health` qui retourne `OK` si le service est accessible :
+
+```bash
+curl https://nextcloud.mondomaine.com/health
+```
+
+### Script de Health Check
+
+Le script `health-check.sh` génère un fichier JSON avec l'état complet :
+
+```bash
+# Exécution manuelle
+./scripts/health-check.sh
+
+# Configurer en cron (toutes les 5 minutes)
+*/5 * * * * /path/to/scripts/health-check.sh
+```
+
+Exemple de sortie (`/var/log/nextcloud-status.json`) :
+```json
+{
+  "timestamp": "2024-01-15T10:30:00Z",
+  "status": "ok",
+  "services": {
+    "nextcloud": "ok",
+    "postgres": "ok",
+    "redis": "ok",
+    "caddy": "ok"
+  },
+  "metrics": {
+    "disk_data_percent": 45,
+    "memory_percent": 62,
+    "load_average": 0.5
+  },
+  "backup": {
+    "last": "20240115_030000"
+  },
+  "alerts": []
+}
+```
+
+### Monitoring depuis un serveur distant
+
+Sur votre serveur de monitoring :
+
+```bash
+#!/bin/bash
+# Script simple de monitoring
+RESPONSE=$(curl -sf https://nextcloud.mondomaine.com/health)
+if [[ $? -ne 0 ]]; then
+    echo "ALERTE: Nextcloud inaccessible" | mail -s "Nextcloud DOWN" admin@example.com
+fi
+```
+
+---
 
 ### Durcissement Supplémentaire
 
