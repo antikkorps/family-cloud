@@ -12,92 +12,68 @@ services:
     networks:
       - frontend
     depends_on:
-      - caddy
-
-  # ===========================================
-  # Caddy - Reverse Proxy local (HTTP interne)
-  # ===========================================
-  caddy:
-    image: caddy:2-alpine
-    container_name: nextcloud-caddy
-    restart: unless-stopped
-    # Pas de ports exposés - accessible uniquement via le tunnel
-    volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-      - nextcloud_www:/var/www/html:ro
-    networks:
-      - frontend
-      - backend
-    environment:
-      - DOMAIN=${DOMAIN}
-    depends_on:
       - nextcloud
+
+  # Caddy supprimé - Nextcloud Apache direct
 
   # ===========================================
   # Nextcloud - Application FPM
   # ===========================================
   nextcloud:
-    image: nextcloud:fpm-alpine
+    image: nextcloud:apache
     container_name: nextcloud-app
     restart: unless-stopped
     volumes:
       - nextcloud_www:/var/www/html
-      - ${DATA_PATH}:/var/www/html/data
+      - nextcloud_data:/var/www/html/data
       - ./nextcloud/custom.ini:/usr/local/etc/php/conf.d/custom.ini:ro
     networks:
+      - frontend
       - backend
     environment:
       # Base de données
-      - POSTGRES_HOST=postgres
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - MYSQL_HOST=mysql
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
       # Redis
       - REDIS_HOST=redis
       - REDIS_HOST_PASSWORD=${REDIS_PASSWORD}
-      # Nextcloud
-      - NEXTCLOUD_ADMIN_USER=${NEXTCLOUD_ADMIN_USER}
-      - NEXTCLOUD_ADMIN_PASSWORD=${NEXTCLOUD_ADMIN_PASSWORD}
-      - NEXTCLOUD_TRUSTED_DOMAINS=${DOMAIN}
-      - TRUSTED_PROXIES=caddy
-      - OVERWRITEPROTOCOL=https
-      - OVERWRITEHOST=${DOMAIN}
-      - OVERWRITECLIURL=https://${DOMAIN}
+      # Nextcloud - variables supprimées pour éviter les conflits d'auto-install
       # PHP
       - PHP_MEMORY_LIMIT=1G
       - PHP_UPLOAD_LIMIT=10G
     depends_on:
-      postgres:
+      mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "php -f /var/www/html/occ status | grep -q 'installed: true'"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 120s
+    # Healthcheck temporairement désactivé pour résoudre les redémarrages
+    # healthcheck:
+    #   test: ["CMD-SHELL", "php -f /var/www/html/occ status | grep -q 'installed: true'"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 120s
 
   # ===========================================
   # Nextcloud Cron - Tâches planifiées
   # ===========================================
   nextcloud-cron:
-    image: nextcloud:fpm-alpine
+    image: nextcloud:apache
     container_name: nextcloud-cron
     restart: unless-stopped
     volumes:
       - nextcloud_www:/var/www/html
-      - ${DATA_PATH}:/var/www/html/data
+      - nextcloud_data:/var/www/html/data
       - ./nextcloud/custom.ini:/usr/local/etc/php/conf.d/custom.ini:ro
     networks:
       - backend
     environment:
-      - POSTGRES_HOST=postgres
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - MYSQL_HOST=mysql
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
       - REDIS_HOST=redis
       - REDIS_HOST_PASSWORD=${REDIS_PASSWORD}
     entrypoint: /cron.sh
@@ -105,22 +81,24 @@ services:
       - nextcloud
 
   # ===========================================
-  # PostgreSQL - Base de données
+  # MySQL/MariaDB - Base de données
   # ===========================================
-  postgres:
-    image: postgres:16-alpine
-    container_name: nextcloud-postgres
+  mysql:
+    image: mariadb:10.11
+    container_name: nextcloud-mysql
     restart: unless-stopped
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mysql_data:/var/lib/mysql
     networks:
       - backend
     environment:
-      - POSTGRES_DB=${POSTGRES_DB}
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${MYSQL_DATABASE}
+      - MYSQL_USER=${MYSQL_USER}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
+    command: --transaction-isolation=READ-COMMITTED --binlog-format=ROW
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -184,8 +162,10 @@ networks:
 volumes:
   nextcloud_www:
     name: nextcloud_www
-  postgres_data:
-    name: nextcloud_postgres
+  nextcloud_data:
+    name: nextcloud_data
+  mysql_data:
+    name: nextcloud_mysql
   redis_data:
     name: nextcloud_redis
   caddy_data:

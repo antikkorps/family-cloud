@@ -109,6 +109,7 @@
 	# ==========================================
 	route {
 		@notStatic not file
+		@notIndex not path /index.php*
 		rewrite @notStatic /index.php{uri}
 
 		@phpFiles path *.php
