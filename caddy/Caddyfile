@@ -1,0 +1,107 @@
+# Configuration globale Caddy
+{
+	# Email pour Let's Encrypt
+	email {$ACME_EMAIL:admin@example.com}
+
+	# Activer HTTP/3
+	servers {
+		protocols h1 h2 h3
+	}
+}
+
+# Configuration Nextcloud
+{$DOMAIN} {
+	# Logs
+	log {
+		output file /data/logs/nextcloud.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+	}
+
+	# Encodage (compression)
+	encode gzip zstd
+
+	# ==========================================
+	# Headers de sécurité
+	# ==========================================
+	header {
+		# Sécurité de base
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		X-XSS-Protection "1; mode=block"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+
+		# Supprimer les headers révélateurs
+		-Server
+		-X-Powered-By
+	}
+
+	# ==========================================
+	# Redirections .well-known (CalDAV/CardDAV)
+	# ==========================================
+	redir /.well-known/carddav /remote.php/dav permanent
+	redir /.well-known/caldav /remote.php/dav permanent
+	redir /.well-known/webfinger /index.php/.well-known/webfinger permanent
+	redir /.well-known/nodeinfo /index.php/.well-known/nodeinfo permanent
+
+	# ==========================================
+	# Bloquer l'accès aux fichiers sensibles
+	# ==========================================
+	@forbidden {
+		path /build/* /tests/* /config/* /lib/* /3rdparty/* /templates/* /data/*
+		path /.* /autotest* /occ* /issue* /indie* /db_* /console*
+		path /README /AUTHORS /COPYING
+	}
+	respond @forbidden 404
+
+	# ==========================================
+	# Fichiers statiques (servis par Caddy)
+	# ==========================================
+	@static {
+		path *.css *.js *.svg *.gif *.png *.jpg *.jpeg *.ico *.woff *.woff2 *.ttf *.eot
+	}
+	handle @static {
+		root * /var/www/html
+		file_server {
+			precompressed gzip
+		}
+		header Cache-Control "public, max-age=15778463, immutable"
+	}
+
+	# ==========================================
+	# PHP-FPM pour Nextcloud
+	# ==========================================
+	@php {
+		path *.php
+		path /remote.php/* /index.php/* /status.php /ocs/*
+	}
+
+	# Route principale vers PHP-FPM
+	route {
+		# Essayer d'abord le fichier, puis index.php
+		@notStatic not file
+		rewrite @notStatic /index.php{uri}
+
+		# Configuration PHP-FPM
+		@phpFiles path *.php
+		handle @phpFiles {
+			root * /var/www/html
+			php_fastcgi nextcloud:9000 {
+				# Transmission de l'IP réelle
+				trusted_proxies private_ranges
+				env REMOTE_ADDR {http.request.header.X-Forwarded-For}
+
+				# Timeouts pour gros uploads
+				read_timeout 3600s
+				write_timeout 3600s
+			}
+		}
+
+		# Servir les fichiers statiques
+		root * /var/www/html
+		file_server
+	}
+}
