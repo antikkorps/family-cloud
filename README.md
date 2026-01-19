@@ -161,26 +161,22 @@ docker compose ps
 
 ### 6. Configuration Post-Installation
 
-Une fois Nextcloud accessible, exécutez ces commandes :
+Une fois Nextcloud accessible, exécutez le script de configuration automatique :
 
 ```bash
-# Configurer les indices de la base de données
-docker exec -u www-data nextcloud-app php occ db:add-missing-indices
-
-# Configurer la région téléphone (pour la validation)
-docker exec -u www-data nextcloud-app php occ config:system:set default_phone_region --value="FR"
-
-# Configurer le cache Redis
-docker exec -u www-data nextcloud-app php occ config:system:set memcache.local --value="\\OC\\Memcache\\APCu"
-docker exec -u www-data nextcloud-app php occ config:system:set memcache.distributed --value="\\OC\\Memcache\\Redis"
-docker exec -u www-data nextcloud-app php occ config:system:set memcache.locking --value="\\OC\\Memcache\\Redis"
-docker exec -u www-data nextcloud-app php occ config:system:set redis host --value="redis"
-docker exec -u www-data nextcloud-app php occ config:system:set redis port --value="6379"
-docker exec -u www-data nextcloud-app php occ config:system:set redis password --value="VOTRE_REDIS_PASSWORD"
-
-# Configurer le cron en mode background
-docker exec -u www-data nextcloud-app php occ background:cron
+./scripts/post-install.sh
 ```
+
+Ce script configure automatiquement :
+- Indices de base de données
+- Cache Redis (APCu + Redis)
+- Imaginary (traitement d'images accéléré)
+- Preview Generator
+- Paramètres régionaux (FR)
+- Mode cron
+- Sécurité (protection brute force)
+
+Voir le script pour les détails ou pour une configuration manuelle.
 
 ---
 
@@ -338,11 +334,16 @@ nextcloud/
 ├── README.md
 ├── caddy/
 │   └── Caddyfile           # Configuration du reverse proxy
+├── fail2ban/
+│   ├── jail.local          # Configuration des jails
+│   └── nextcloud.conf      # Filtre pour Nextcloud
 ├── nextcloud/
 │   └── custom.ini          # Configuration PHP personnalisée
 ├── scripts/
 │   ├── backup.sh           # Script de backup vers R2
-│   └── restore.sh          # Script de restauration
+│   ├── restore.sh          # Script de restauration
+│   ├── post-install.sh     # Configuration post-installation
+│   └── setup-fail2ban.sh   # Installation de Fail2ban
 └── backups/                # Dumps locaux temporaires (non versionné)
 ```
 
@@ -404,6 +405,34 @@ Actions effectuées :
 - Headers de sécurité (HSTS, CSP, etc.)
 - Mots de passe générés aléatoirement
 - Pas d'exposition directe de PostgreSQL/Redis
+- Fail2ban pour la protection brute force
+
+### Fail2ban (Protection Brute Force)
+
+Le projet inclut une configuration Fail2ban pour protéger SSH et Nextcloud.
+
+```bash
+# Installation automatique
+sudo ./scripts/setup-fail2ban.sh
+
+# Ou installation manuelle
+sudo apt install fail2ban
+sudo cp fail2ban/jail.local /etc/fail2ban/jail.local
+sudo cp fail2ban/nextcloud.conf /etc/fail2ban/filter.d/nextcloud.conf
+sudo systemctl restart fail2ban
+```
+
+**Commandes utiles :**
+```bash
+# Voir les jails actives
+fail2ban-client status
+
+# Détails d'une jail
+fail2ban-client status nextcloud
+
+# Débannir une IP
+fail2ban-client set nextcloud unbanip 1.2.3.4
+```
 
 ### Durcissement Supplémentaire
 
