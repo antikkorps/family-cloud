@@ -72,9 +72,9 @@ check_prerequisites() {
         if ! command -v age &> /dev/null; then
             error "age n'est pas installé mais BACKUP_ENCRYPTION_KEY est défini. Installez-le avec: sudo apt install age"
         fi
-        log "Chiffrement activé (age)"
+        log "Chiffrement côté client activé (age)"
     else
-        log "ATTENTION: Chiffrement désactivé (BACKUP_ENCRYPTION_KEY non défini)"
+        log "Chiffrement côté client désactivé (R2 chiffre au repos)"
     fi
 
     # Vérifier que Docker est en cours d'exécution
