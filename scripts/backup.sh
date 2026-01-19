@@ -6,7 +6,7 @@
 #
 # Ce script :
 # 1. Active le mode maintenance
-# 2. Dump la base de données PostgreSQL
+# 2. Dump la base de données MySQL/MariaDB
 # 3. Chiffre les backups (si BACKUP_ENCRYPTION_KEY est défini)
 # 4. Synchronise vers Cloudflare R2 avec Rclone
 # 5. Désactive le mode maintenance
@@ -36,7 +36,8 @@ fi
 BACKUP_PATH="${BACKUP_PATH:-${PROJECT_DIR}/backups}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
 R2_BUCKET_NAME="${R2_BUCKET_NAME:-nextcloud-backup}"
-DATA_PATH="${DATA_PATH:-/mnt/nextcloud_data}"
+# Utilisation du volume Docker maintenant
+DATA_PATH="nextcloud_data"
 BACKUP_ENCRYPTION_KEY="${BACKUP_ENCRYPTION_KEY:-}"
 
 # Mode de backup (full par défaut)
@@ -125,16 +126,18 @@ maintenance_off() {
 
 # Dump de la base de données
 backup_database() {
-    log "Backup de la base de données PostgreSQL..."
+    log "Backup de la base de données MySQL/MariaDB..."
 
     local db_backup_file="${BACKUP_PATH}/db_${TIMESTAMP}.sql.gz"
 
-    docker exec nextcloud-postgres pg_dump \
-        -U "$POSTGRES_USER" \
-        -d "$POSTGRES_DB" \
-        --no-owner \
-        --no-acl \
-        | gzip > "$db_backup_file" || error "Échec du dump PostgreSQL"
+    docker exec nextcloud-mysql mysqldump \
+        -u "$MYSQL_USER" \
+        -p"$MYSQL_PASSWORD" \
+        "$MYSQL_DATABASE" \
+        --single-transaction \
+        --routines \
+        --triggers \
+        | gzip > "$db_backup_file" || error "Échec du dump MySQL"
 
     log "Base de données sauvegardée: $db_backup_file ($(du -h "$db_backup_file" | cut -f1))"
 
