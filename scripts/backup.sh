@@ -1,15 +1,13 @@
 #!/bin/bash
 # ===========================================
-# Script de Backup Nextcloud vers Cloudflare R2
+# Script de Backup Family Cloud vers Cloudflare R2
 # ===========================================
-# Usage: ./backup.sh [--full|--db-only|--data-only]
+# Usage: ./backup.sh [--full|--immich|--seafile|--stalwart]
 #
-# Ce script :
-# 1. Active le mode maintenance
-# 2. Dump la base de données MySQL/MariaDB
-# 3. Chiffre les backups (si BACKUP_ENCRYPTION_KEY est défini)
-# 4. Synchronise vers Cloudflare R2 avec Rclone
-# 5. Désactive le mode maintenance
+# Ce script sauvegarde :
+# - Immich : PostgreSQL + photos/videos
+# - Seafile : MariaDB + fichiers
+# - Stalwart : donnees CalDAV/CardDAV
 # ===========================================
 
 set -euo pipefail
@@ -28,23 +26,21 @@ if [[ -f "${PROJECT_DIR}/.env" ]]; then
     source "${PROJECT_DIR}/.env"
     set +a
 else
-    echo "ERREUR: Fichier .env non trouvé dans ${PROJECT_DIR}"
+    echo "ERREUR: Fichier .env non trouve dans ${PROJECT_DIR}"
     exit 1
 fi
 
-# Valeurs par défaut
+# Valeurs par defaut
 BACKUP_PATH="${BACKUP_PATH:-${PROJECT_DIR}/backups}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
-R2_BUCKET_NAME="${R2_BUCKET_NAME:-nextcloud-backup}"
-# Utilisation du volume Docker maintenant
-DATA_PATH="nextcloud_data"
+R2_BUCKET_NAME="${R2_BUCKET_NAME:-family-backup}"
 BACKUP_ENCRYPTION_KEY="${BACKUP_ENCRYPTION_KEY:-}"
 
-# Mode de backup (full par défaut)
+# Mode de backup (full par defaut)
 BACKUP_MODE="${1:-full}"
 
 # ===========================================
-# Fonctions
+# Fonctions utilitaires
 # ===========================================
 
 log() {
@@ -54,47 +50,33 @@ log() {
 
 error() {
     log "ERREUR: $1"
-    # Désactiver le mode maintenance en cas d'erreur
-    maintenance_off || true
     exit 1
 }
 
-# Vérifier les prérequis
 check_prerequisites() {
-    log "Vérification des prérequis..."
+    log "Verification des prerequis..."
 
-    # Vérifier que rclone est installé
     if ! command -v rclone &> /dev/null; then
-        error "rclone n'est pas installé. Installez-le avec: sudo apt install rclone"
+        error "rclone n'est pas installe. Installez-le avec: sudo apt install rclone"
     fi
 
-    # Vérifier age si chiffrement activé
     if [[ -n "$BACKUP_ENCRYPTION_KEY" ]]; then
         if ! command -v age &> /dev/null; then
-            error "age n'est pas installé mais BACKUP_ENCRYPTION_KEY est défini. Installez-le avec: sudo apt install age"
+            error "age n'est pas installe mais BACKUP_ENCRYPTION_KEY est defini"
         fi
-        log "Chiffrement côté client activé (age)"
+        log "Chiffrement cote client active (age)"
     else
-        log "Chiffrement côté client désactivé (R2 chiffre au repos)"
+        log "Chiffrement cote client desactive (R2 chiffre au repos)"
     fi
 
-    # Vérifier que Docker est en cours d'exécution
     if ! docker info &> /dev/null; then
-        error "Docker n'est pas en cours d'exécution"
+        error "Docker n'est pas en cours d'execution"
     fi
 
-    # Vérifier que le conteneur Nextcloud existe
-    if ! docker ps -q -f name=nextcloud-app &> /dev/null; then
-        error "Conteneur nextcloud-app non trouvé"
-    fi
-
-    # Créer le répertoire de backup si nécessaire
     mkdir -p "$BACKUP_PATH"
-
-    log "Prérequis OK"
+    log "Prerequis OK"
 }
 
-# Chiffrer un fichier avec age
 encrypt_file() {
     local input_file="$1"
     local output_file="${input_file}.age"
@@ -102,7 +84,6 @@ encrypt_file() {
     if [[ -n "$BACKUP_ENCRYPTION_KEY" ]]; then
         log "Chiffrement de $(basename "$input_file")..."
         echo "$BACKUP_ENCRYPTION_KEY" | age -p -o "$output_file" "$input_file" 2>/dev/null
-        # Supprimer le fichier non chiffré
         rm -f "$input_file"
         echo "$output_file"
     else
@@ -110,130 +91,180 @@ encrypt_file() {
     fi
 }
 
-# Activer le mode maintenance
-maintenance_on() {
-    log "Activation du mode maintenance..."
-    docker exec nextcloud-app php occ maintenance:mode --on || error "Impossible d'activer le mode maintenance"
-    log "Mode maintenance activé"
-}
+upload_to_r2() {
+    local file="$1"
+    local destination="$2"
 
-# Désactiver le mode maintenance
-maintenance_off() {
-    log "Désactivation du mode maintenance..."
-    docker exec nextcloud-app php occ maintenance:mode --off || log "ATTENTION: Impossible de désactiver le mode maintenance"
-    log "Mode maintenance désactivé"
-}
-
-# Dump de la base de données
-backup_database() {
-    log "Backup de la base de données MySQL/MariaDB..."
-
-    local db_backup_file="${BACKUP_PATH}/db_${TIMESTAMP}.sql.gz"
-
-    docker exec nextcloud-mysql mysqldump \
-        -u "$MYSQL_USER" \
-        -p"$MYSQL_PASSWORD" \
-        "$MYSQL_DATABASE" \
-        --single-transaction \
-        --routines \
-        --triggers \
-        | gzip > "$db_backup_file" || error "Échec du dump MySQL"
-
-    log "Base de données sauvegardée: $db_backup_file ($(du -h "$db_backup_file" | cut -f1))"
-
-    # Chiffrer si activé
-    db_backup_file=$(encrypt_file "$db_backup_file")
-
-    # Upload vers R2
-    log "Upload du dump vers R2..."
-    rclone copy "$db_backup_file" "r2:${R2_BUCKET_NAME}/database/" \
+    rclone copy "$file" "r2:${R2_BUCKET_NAME}/${destination}/" \
         --progress \
         --log-file="$LOG_FILE" \
-        --log-level INFO || error "Échec de l'upload du dump vers R2"
+        --log-level INFO || error "Echec de l'upload vers R2: $file"
 
-    log "Dump uploadé vers R2"
+    log "Uploade vers R2: ${destination}/$(basename "$file")"
 }
 
-# Backup des données Nextcloud (avec rclone crypt si chiffrement activé)
-backup_data() {
-    log "Synchronisation des données vers R2..."
-    log "Chemin des données: $DATA_PATH"
+# ===========================================
+# Backup Immich
+# ===========================================
 
-    local remote="r2:${R2_BUCKET_NAME}/data/"
+backup_immich() {
+    log "=== Backup Immich ==="
 
-    # Si chiffrement activé, utiliser rclone crypt
-    if [[ -n "$BACKUP_ENCRYPTION_KEY" ]]; then
-        log "Utilisation du chiffrement rclone crypt..."
-        remote="r2-crypt:data/"
+    # Verifier que les conteneurs existent
+    if ! docker ps -q -f name=immich-postgres &> /dev/null; then
+        log "ATTENTION: Conteneur immich-postgres non trouve, skip"
+        return 0
     fi
 
-    # Synchroniser les données vers R2
-    rclone sync "$DATA_PATH" "$remote" \
+    # 1. Dump PostgreSQL
+    log "Dump PostgreSQL Immich..."
+    local db_backup_file="${BACKUP_PATH}/immich_db_${TIMESTAMP}.sql.gz"
+
+    docker exec immich-postgres pg_dump \
+        -U "${IMMICH_DB_USER}" \
+        -d "${IMMICH_DB_NAME}" \
+        --clean \
+        --if-exists \
+        | gzip > "$db_backup_file" || error "Echec du dump PostgreSQL Immich"
+
+    log "Base Immich sauvegardee: $(du -h "$db_backup_file" | cut -f1)"
+
+    db_backup_file=$(encrypt_file "$db_backup_file")
+    upload_to_r2 "$db_backup_file" "immich/database"
+
+    # 2. Sync des photos/videos vers R2
+    log "Synchronisation des photos/videos Immich..."
+    local remote="r2:${R2_BUCKET_NAME}/immich/upload/"
+
+    if [[ -n "$BACKUP_ENCRYPTION_KEY" ]]; then
+        remote="r2-crypt:immich/upload/"
+    fi
+
+    rclone sync "${UPLOAD_LOCATION}" "$remote" \
         --transfers=4 \
         --checkers=8 \
         --progress \
         --log-file="$LOG_FILE" \
         --log-level INFO \
-        --exclude "appdata_*/preview/**" \
-        --exclude "*.part" \
-        --exclude "*.tmp" || error "Échec de la synchronisation des données"
+        --exclude "*.tmp" \
+        --exclude "*.part" || error "Echec de la synchronisation Immich"
 
-    log "Données synchronisées vers R2"
+    log "Photos/videos Immich synchronisees"
 }
 
-# Backup de la configuration
-backup_config() {
-    log "Backup de la configuration Nextcloud..."
+# ===========================================
+# Backup Seafile
+# ===========================================
 
-    local config_backup_file="${BACKUP_PATH}/config_${TIMESTAMP}.tar.gz"
+backup_seafile() {
+    log "=== Backup Seafile ==="
 
-    # Extraire la config depuis le volume Docker
+    if ! docker ps -q -f name=seafile-mariadb &> /dev/null; then
+        log "ATTENTION: Conteneur seafile-mariadb non trouve, skip"
+        return 0
+    fi
+
+    # 1. Dump MariaDB (toutes les bases Seafile)
+    log "Dump MariaDB Seafile..."
+    local db_backup_file="${BACKUP_PATH}/seafile_db_${TIMESTAMP}.sql.gz"
+
+    docker exec seafile-mariadb mysqldump \
+        -u root \
+        -p"${SEAFILE_DB_ROOT_PASSWORD}" \
+        --all-databases \
+        --single-transaction \
+        --routines \
+        --triggers \
+        | gzip > "$db_backup_file" || error "Echec du dump MariaDB Seafile"
+
+    log "Base Seafile sauvegardee: $(du -h "$db_backup_file" | cut -f1)"
+
+    db_backup_file=$(encrypt_file "$db_backup_file")
+    upload_to_r2 "$db_backup_file" "seafile/database"
+
+    # 2. Backup des donnees Seafile
+    log "Synchronisation des donnees Seafile..."
+    local remote="r2:${R2_BUCKET_NAME}/seafile/data/"
+
+    if [[ -n "$BACKUP_ENCRYPTION_KEY" ]]; then
+        remote="r2-crypt:seafile/data/"
+    fi
+
+    # Utiliser le volume Docker
     docker run --rm \
-        -v nextcloud_www:/source:ro \
+        -v seafile_data:/source:ro \
         -v "${BACKUP_PATH}:/backup" \
-        alpine tar czf "/backup/config_${TIMESTAMP}.tar.gz" \
-        -C /source config || error "Échec du backup de la configuration"
+        alpine tar czf "/backup/seafile_data_${TIMESTAMP}.tar.gz" \
+        -C /source . || error "Echec de la creation de l'archive Seafile"
 
-    log "Configuration sauvegardée: $config_backup_file"
+    local seafile_archive="${BACKUP_PATH}/seafile_data_${TIMESTAMP}.tar.gz"
+    log "Archive Seafile creee: $(du -h "$seafile_archive" | cut -f1)"
 
-    # Chiffrer si activé
-    config_backup_file=$(encrypt_file "$config_backup_file")
+    seafile_archive=$(encrypt_file "$seafile_archive")
+    upload_to_r2 "$seafile_archive" "seafile/data"
 
-    # Upload vers R2
-    rclone copy "$config_backup_file" "r2:${R2_BUCKET_NAME}/config/" \
-        --progress \
-        --log-file="$LOG_FILE" \
-        --log-level INFO || error "Échec de l'upload de la config vers R2"
+    # Nettoyer l'archive locale
+    rm -f "${BACKUP_PATH}/seafile_data_${TIMESTAMP}.tar.gz"*
 
-    log "Configuration uploadée vers R2"
+    log "Donnees Seafile sauvegardees"
 }
 
-# Nettoyage des anciens backups locaux
+# ===========================================
+# Backup Stalwart
+# ===========================================
+
+backup_stalwart() {
+    log "=== Backup Stalwart ==="
+
+    if ! docker ps -q -f name=stalwart &> /dev/null; then
+        log "ATTENTION: Conteneur stalwart non trouve, skip"
+        return 0
+    fi
+
+    log "Backup des donnees Stalwart..."
+
+    # Creer une archive des donnees Stalwart
+    docker run --rm \
+        -v stalwart_data:/source:ro \
+        -v "${BACKUP_PATH}:/backup" \
+        alpine tar czf "/backup/stalwart_${TIMESTAMP}.tar.gz" \
+        -C /source . || error "Echec du backup Stalwart"
+
+    local stalwart_archive="${BACKUP_PATH}/stalwart_${TIMESTAMP}.tar.gz"
+    log "Archive Stalwart creee: $(du -h "$stalwart_archive" | cut -f1)"
+
+    stalwart_archive=$(encrypt_file "$stalwart_archive")
+    upload_to_r2 "$stalwart_archive" "stalwart"
+
+    # Nettoyer l'archive locale
+    rm -f "${BACKUP_PATH}/stalwart_${TIMESTAMP}.tar.gz"*
+
+    log "Donnees Stalwart sauvegardees"
+}
+
+# ===========================================
+# Nettoyage
+# ===========================================
+
 cleanup_local() {
     log "Nettoyage des backups locaux de plus de ${BACKUP_RETENTION_DAYS} jours..."
-
     find "$BACKUP_PATH" -type f -name "*.sql.gz*" -mtime +${BACKUP_RETENTION_DAYS} -delete 2>/dev/null || true
     find "$BACKUP_PATH" -type f -name "*.tar.gz*" -mtime +${BACKUP_RETENTION_DAYS} -delete 2>/dev/null || true
     find "$BACKUP_PATH" -type f -name "*.log" -mtime +${BACKUP_RETENTION_DAYS} -delete 2>/dev/null || true
-
-    log "Nettoyage local terminé"
+    log "Nettoyage local termine"
 }
 
-# Nettoyage des anciens backups sur R2
 cleanup_r2() {
     log "Nettoyage des backups R2 de plus de ${BACKUP_RETENTION_DAYS} jours..."
 
-    rclone delete "r2:${R2_BUCKET_NAME}/database/" \
-        --min-age "${BACKUP_RETENTION_DAYS}d" \
-        --log-file="$LOG_FILE" \
-        --log-level INFO 2>/dev/null || true
+    for path in "immich/database" "seafile/database" "seafile/data" "stalwart"; do
+        rclone delete "r2:${R2_BUCKET_NAME}/${path}/" \
+            --min-age "${BACKUP_RETENTION_DAYS}d" \
+            --log-file="$LOG_FILE" \
+            --log-level INFO 2>/dev/null || true
+    done
 
-    rclone delete "r2:${R2_BUCKET_NAME}/config/" \
-        --min-age "${BACKUP_RETENTION_DAYS}d" \
-        --log-file="$LOG_FILE" \
-        --log-level INFO 2>/dev/null || true
-
-    log "Nettoyage R2 terminé"
+    log "Nettoyage R2 termine"
 }
 
 # ===========================================
@@ -242,50 +273,41 @@ cleanup_r2() {
 
 main() {
     log "=========================================="
-    log "Démarrage du backup Nextcloud"
+    log "Demarrage du backup Family Cloud"
     log "Mode: $BACKUP_MODE"
-    log "Chiffrement: $([ -n "$BACKUP_ENCRYPTION_KEY" ] && echo "activé" || echo "désactivé")"
+    log "Chiffrement: $([ -n "$BACKUP_ENCRYPTION_KEY" ] && echo "active" || echo "desactive")"
     log "=========================================="
 
     check_prerequisites
 
-    # Activer le mode maintenance
-    maintenance_on
-
     case "$BACKUP_MODE" in
-        "full")
-            backup_database
-            backup_data
-            backup_config
+        "full"|"--full")
+            backup_immich
+            backup_seafile
+            backup_stalwart
             ;;
-        "--db-only"|"db-only")
-            backup_database
+        "--immich"|"immich")
+            backup_immich
             ;;
-        "--data-only"|"data-only")
-            backup_data
+        "--seafile"|"seafile")
+            backup_seafile
             ;;
-        "--config-only"|"config-only")
-            backup_config
+        "--stalwart"|"stalwart")
+            backup_stalwart
             ;;
         *)
             log "Mode non reconnu: $BACKUP_MODE"
-            log "Modes disponibles: full, db-only, data-only, config-only"
-            maintenance_off
+            log "Modes disponibles: full, immich, seafile, stalwart"
             exit 1
             ;;
     esac
 
-    # Désactiver le mode maintenance
-    maintenance_off
-
-    # Nettoyage
     cleanup_local
     cleanup_r2
 
     log "=========================================="
-    log "Backup terminé avec succès!"
+    log "Backup termine avec succes!"
     log "=========================================="
 }
 
-# Exécuter le script principal
 main "$@"

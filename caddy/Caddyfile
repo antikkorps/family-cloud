@@ -1,132 +1,96 @@
-# Configuration Caddy pour Cloudflare Tunnel
-# SSL géré par Cloudflare - Caddy écoute en HTTP local
+# Configuration Caddy pour Family Cloud
+# SSL gere par Cloudflare - Caddy ecoute en HTTP local
+# Cloudflare Tunnel route chaque sous-domaine vers Caddy:80
 {
-	# Pas de HTTPS automatique (Cloudflare s'en charge)
 	auto_https off
 
 	servers {
 		protocols h1 h2
 		timeouts {
-			read_body 60s
+			read_body 120s
 			read_header 10s
-			write 120s
+			write 300s
 			idle 300s
 		}
 	}
 }
 
-# Écoute HTTP sur port 80
 :80 {
 	# Logs
 	log {
-		output file /data/logs/nextcloud.log {
+		output file /data/logs/access.log {
 			roll_size 10mb
 			roll_keep 5
 		}
 	}
 
-	# Encodage (compression)
 	encode gzip zstd
 
-	# ==========================================
-	# Headers de sécurité
-	# ==========================================
+	# Headers de securite communs
 	header {
-		# Sécurité de base
 		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
 		X-Content-Type-Options "nosniff"
 		X-Frame-Options "SAMEORIGIN"
 		X-XSS-Protection "1; mode=block"
 		Referrer-Policy "strict-origin-when-cross-origin"
-		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
-
-		# Supprimer les headers révélateurs
 		-Server
 		-X-Powered-By
 	}
 
-	# ==========================================
-	# Endpoint de monitoring /health
-	# ==========================================
+	# ===========================================
+	# IMMICH - photos.*
+	# ===========================================
+	@immich header_regexp host Host ^photos\.
+	handle @immich {
+		reverse_proxy immich-server:2283 {
+			flush_interval -1
+			header_up X-Real-IP {header.CF-Connecting-IP}
+			header_up X-Forwarded-For {header.CF-Connecting-IP}
+		}
+	}
+
+	# ===========================================
+	# SEAFILE - files.*
+	# ===========================================
+	@seafile header_regexp host Host ^files\.
+	handle @seafile {
+		reverse_proxy seafile:80 {
+			flush_interval -1
+			header_up X-Real-IP {header.CF-Connecting-IP}
+			header_up X-Forwarded-For {header.CF-Connecting-IP}
+		}
+	}
+
+	# ===========================================
+	# STALWART - mail.* ou dav.*
+	# ===========================================
+	@stalwart header_regexp host Host ^(mail|dav)\.
+	handle @stalwart {
+		reverse_proxy stalwart:8080 {
+			header_up X-Real-IP {header.CF-Connecting-IP}
+			header_up X-Forwarded-For {header.CF-Connecting-IP}
+		}
+	}
+
+	# ===========================================
+	# Well-known pour CalDAV/CardDAV (decouverte auto)
+	# ===========================================
+	handle /.well-known/caldav {
+		redir /dav permanent
+	}
+	handle /.well-known/carddav {
+		redir /dav permanent
+	}
+
+	# ===========================================
+	# Health check
+	# ===========================================
 	handle /health {
 		respond "OK" 200
 	}
 
-	# ==========================================
-	# Protection des endpoints sensibles
-	# ==========================================
-	@bruteforce {
-		path /login /index.php/login
-		path /remote.php/webdav* /remote.php/dav*
-		path /ocs/v1.php/* /ocs/v2.php/*
-	}
-	handle @bruteforce {
-		header X-Nextcloud-Auth "protected"
-
-		root * /var/www/html
-		php_fastcgi nextcloud:9000 {
-			trusted_proxies private_ranges
-			env REMOTE_ADDR {http.request.header.CF-Connecting-IP}
-			read_timeout 3600s
-			write_timeout 3600s
-		}
-	}
-
-	# ==========================================
-	# Redirections .well-known (CalDAV/CardDAV)
-	# ==========================================
-	redir /.well-known/carddav /remote.php/dav permanent
-	redir /.well-known/caldav /remote.php/dav permanent
-	redir /.well-known/webfinger /index.php/.well-known/webfinger permanent
-	redir /.well-known/nodeinfo /index.php/.well-known/nodeinfo permanent
-
-	# ==========================================
-	# Bloquer l'accès aux fichiers sensibles
-	# ==========================================
-	@forbidden {
-		path /build/* /tests/* /config/* /lib/* /3rdparty/* /templates/* /data/*
-		path /.* /autotest* /occ* /issue* /indie* /db_* /console*
-		path /README /AUTHORS /COPYING
-	}
-	respond @forbidden 404
-
-	# ==========================================
-	# Fichiers statiques (servis par Caddy)
-	# ==========================================
-	@static {
-		path *.css *.js *.svg *.gif *.png *.jpg *.jpeg *.ico *.woff *.woff2 *.ttf *.eot
-	}
-	handle @static {
-		root * /var/www/html
-		file_server {
-			precompressed gzip
-		}
-		header Cache-Control "public, max-age=15778463, immutable"
-	}
-
-	# ==========================================
-	# Route principale vers PHP-FPM
-	# ==========================================
-	route {
-		@notStatic not file
-		@notIndex not path /index.php*
-		rewrite @notStatic /index.php{uri}
-
-		@phpFiles path *.php
-		handle @phpFiles {
-			root * /var/www/html
-			php_fastcgi nextcloud:9000 {
-				# IP réelle via header Cloudflare
-				trusted_proxies private_ranges
-				env REMOTE_ADDR {http.request.header.CF-Connecting-IP}
-
-				# Timeouts pour gros uploads
-				read_timeout 3600s
-				write_timeout 3600s
-			}
-		}
-
-		root * /var/www/html
-		file_server
+	# Fallback
+	handle {
+		respond "Service not found" 404
 	}
 }
