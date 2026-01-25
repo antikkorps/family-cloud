@@ -73,6 +73,50 @@
 	}
 
 	# ===========================================
+	# VAULTWARDEN - vault.* (Mots de passe)
+	# ===========================================
+	@vaultwarden header_regexp host Host ^vault\.
+	handle @vaultwarden {
+		reverse_proxy vaultwarden:80 {
+			header_up X-Real-IP {header.CF-Connecting-IP}
+			header_up X-Forwarded-For {header.CF-Connecting-IP}
+		}
+	}
+
+	# ===========================================
+	# PAPERLESS - docs.* (Documents)
+	# ===========================================
+	@paperless header_regexp host Host ^docs\.
+	handle @paperless {
+		reverse_proxy paperless:8000 {
+			header_up X-Real-IP {header.CF-Connecting-IP}
+			header_up X-Forwarded-For {header.CF-Connecting-IP}
+		}
+	}
+
+	# ===========================================
+	# HOMEPAGE - home.* (Dashboard)
+	# ===========================================
+	@homepage header_regexp host Host ^home\.
+	handle @homepage {
+		reverse_proxy homepage:3000 {
+			header_up X-Real-IP {header.CF-Connecting-IP}
+			header_up X-Forwarded-For {header.CF-Connecting-IP}
+		}
+	}
+
+	# ===========================================
+	# STIRLING-PDF - pdf.* (Manipulation PDF)
+	# ===========================================
+	@stirling header_regexp host Host ^pdf\.
+	handle @stirling {
+		reverse_proxy stirling-pdf:8080 {
+			header_up X-Real-IP {header.CF-Connecting-IP}
+			header_up X-Forwarded-For {header.CF-Connecting-IP}
+		}
+	}
+
+	# ===========================================
 	# Health check
 	# ===========================================
 	handle /health {

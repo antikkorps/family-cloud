@@ -1,0 +1,40 @@
+---
+- Cloud:
+    - Photos:
+        icon: immich.png
+        href: https://photos.fvienot.link
+        description: Immich - Photos & Videos
+        server: my-docker
+        container: immich-server
+    - Fichiers:
+        icon: seafile.png
+        href: https://files.fvienot.link
+        description: Seafile - Sync de fichiers
+        server: my-docker
+        container: seafile
+    - Documents:
+        icon: paperless-ngx.png
+        href: https://docs.fvienot.link
+        description: Paperless-ngx - GED
+        server: my-docker
+        container: paperless
+
+- Outils:
+    - Mots de passe:
+        icon: vaultwarden.png
+        href: https://vault.fvienot.link
+        description: Vaultwarden
+        server: my-docker
+        container: vaultwarden
+    - PDF:
+        icon: stirling-pdf.png
+        href: https://pdf.fvienot.link
+        description: Stirling PDF
+        server: my-docker
+        container: stirling-pdf
+    - Calendrier:
+        icon: mdi-calendar-sync
+        href: https://dav.fvienot.link
+        description: Baikal - CalDAV/CardDAV
+        server: my-docker
+        container: baikal

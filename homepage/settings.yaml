@@ -1,0 +1,13 @@
+---
+title: Family Cloud
+favicon: https://cdn.jsdelivr.net/gh/walkxcode/dashboard-icons/png/home-assistant.png
+theme: dark
+color: slate
+headerStyle: clean
+layout:
+  Cloud:
+    style: row
+    columns: 3
+  Outils:
+    style: row
+    columns: 3

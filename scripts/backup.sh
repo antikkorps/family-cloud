@@ -2,12 +2,14 @@
 # ===========================================
 # Script de Backup Family Cloud vers Cloudflare R2
 # ===========================================
-# Usage: ./backup.sh [--full|--immich|--seafile|--stalwart]
+# Usage: ./backup.sh [--full|--immich|--seafile|--baikal|--vaultwarden|--paperless]
 #
 # Ce script sauvegarde :
 # - Immich : PostgreSQL + photos/videos
 # - Seafile : MariaDB + fichiers
-# - Stalwart : donnees CalDAV/CardDAV
+# - Baikal : donnees CalDAV/CardDAV
+# - Vaultwarden : donnees mots de passe
+# - Paperless : donnees documents
 # ===========================================
 
 set -euo pipefail
@@ -210,36 +212,104 @@ backup_seafile() {
 }
 
 # ===========================================
-# Backup Stalwart
+# Backup Baikal (CalDAV/CardDAV)
 # ===========================================
 
-backup_stalwart() {
-    log "=== Backup Stalwart ==="
+backup_baikal() {
+    log "=== Backup Baikal ==="
 
-    if ! docker ps -q -f name=stalwart &> /dev/null; then
-        log "ATTENTION: Conteneur stalwart non trouve, skip"
+    if ! docker ps -q -f name=baikal &> /dev/null; then
+        log "ATTENTION: Conteneur baikal non trouve, skip"
         return 0
     fi
 
-    log "Backup des donnees Stalwart..."
+    log "Backup des donnees Baikal..."
 
-    # Creer une archive des donnees Stalwart
+    # Creer une archive des donnees Baikal (config + data)
     docker run --rm \
-        -v stalwart_data:/source:ro \
+        -v baikal_config:/config:ro \
+        -v baikal_data:/data:ro \
         -v "${BACKUP_PATH}:/backup" \
-        alpine tar czf "/backup/stalwart_${TIMESTAMP}.tar.gz" \
-        -C /source . || error "Echec du backup Stalwart"
+        alpine sh -c "tar czf /backup/baikal_${TIMESTAMP}.tar.gz -C / config data" \
+        || error "Echec du backup Baikal"
 
-    local stalwart_archive="${BACKUP_PATH}/stalwart_${TIMESTAMP}.tar.gz"
-    log "Archive Stalwart creee: $(du -h "$stalwart_archive" | cut -f1)"
+    local baikal_archive="${BACKUP_PATH}/baikal_${TIMESTAMP}.tar.gz"
+    log "Archive Baikal creee: $(du -h "$baikal_archive" | cut -f1)"
 
-    stalwart_archive=$(encrypt_file "$stalwart_archive")
-    upload_to_r2 "$stalwart_archive" "stalwart"
+    baikal_archive=$(encrypt_file "$baikal_archive")
+    upload_to_r2 "$baikal_archive" "baikal"
 
     # Nettoyer l'archive locale
-    rm -f "${BACKUP_PATH}/stalwart_${TIMESTAMP}.tar.gz"*
+    rm -f "${BACKUP_PATH}/baikal_${TIMESTAMP}.tar.gz"*
 
-    log "Donnees Stalwart sauvegardees"
+    log "Donnees Baikal sauvegardees"
+}
+
+# ===========================================
+# Backup Vaultwarden
+# ===========================================
+
+backup_vaultwarden() {
+    log "=== Backup Vaultwarden ==="
+
+    if ! docker ps -q -f name=vaultwarden &> /dev/null; then
+        log "ATTENTION: Conteneur vaultwarden non trouve, skip"
+        return 0
+    fi
+
+    log "Backup des donnees Vaultwarden..."
+
+    # Creer une archive des donnees Vaultwarden
+    docker run --rm \
+        -v vaultwarden_data:/source:ro \
+        -v "${BACKUP_PATH}:/backup" \
+        alpine tar czf "/backup/vaultwarden_${TIMESTAMP}.tar.gz" \
+        -C /source . || error "Echec du backup Vaultwarden"
+
+    local vaultwarden_archive="${BACKUP_PATH}/vaultwarden_${TIMESTAMP}.tar.gz"
+    log "Archive Vaultwarden creee: $(du -h "$vaultwarden_archive" | cut -f1)"
+
+    vaultwarden_archive=$(encrypt_file "$vaultwarden_archive")
+    upload_to_r2 "$vaultwarden_archive" "vaultwarden"
+
+    # Nettoyer l'archive locale
+    rm -f "${BACKUP_PATH}/vaultwarden_${TIMESTAMP}.tar.gz"*
+
+    log "Donnees Vaultwarden sauvegardees"
+}
+
+# ===========================================
+# Backup Paperless-ngx
+# ===========================================
+
+backup_paperless() {
+    log "=== Backup Paperless-ngx ==="
+
+    if ! docker ps -q -f name=paperless &> /dev/null; then
+        log "ATTENTION: Conteneur paperless non trouve, skip"
+        return 0
+    fi
+
+    log "Backup des donnees Paperless..."
+
+    # Creer une archive des donnees Paperless (data + media)
+    docker run --rm \
+        -v paperless_data:/data:ro \
+        -v paperless_media:/media:ro \
+        -v "${BACKUP_PATH}:/backup" \
+        alpine sh -c "tar czf /backup/paperless_${TIMESTAMP}.tar.gz -C / data media" \
+        || error "Echec du backup Paperless"
+
+    local paperless_archive="${BACKUP_PATH}/paperless_${TIMESTAMP}.tar.gz"
+    log "Archive Paperless creee: $(du -h "$paperless_archive" | cut -f1)"
+
+    paperless_archive=$(encrypt_file "$paperless_archive")
+    upload_to_r2 "$paperless_archive" "paperless"
+
+    # Nettoyer l'archive locale
+    rm -f "${BACKUP_PATH}/paperless_${TIMESTAMP}.tar.gz"*
+
+    log "Donnees Paperless sauvegardees"
 }
 
 # ===========================================
@@ -257,7 +327,7 @@ cleanup_local() {
 cleanup_r2() {
     log "Nettoyage des backups R2 de plus de ${BACKUP_RETENTION_DAYS} jours..."
 
-    for path in "immich/database" "seafile/database" "seafile/data" "stalwart"; do
+    for path in "immich/database" "seafile/database" "seafile/data" "baikal" "vaultwarden" "paperless"; do
         rclone delete "r2:${R2_BUCKET_NAME}/${path}/" \
             --min-age "${BACKUP_RETENTION_DAYS}d" \
             --log-file="$LOG_FILE" \
@@ -284,7 +354,9 @@ main() {
         "full"|"--full")
             backup_immich
             backup_seafile
-            backup_stalwart
+            backup_baikal
+            backup_vaultwarden
+            backup_paperless
             ;;
         "--immich"|"immich")
             backup_immich
@@ -292,12 +364,18 @@ main() {
         "--seafile"|"seafile")
             backup_seafile
             ;;
-        "--stalwart"|"stalwart")
-            backup_stalwart
+        "--baikal"|"baikal")
+            backup_baikal
+            ;;
+        "--vaultwarden"|"vaultwarden")
+            backup_vaultwarden
+            ;;
+        "--paperless"|"paperless")
+            backup_paperless
             ;;
         *)
             log "Mode non reconnu: $BACKUP_MODE"
-            log "Modes disponibles: full, immich, seafile, stalwart"
+            log "Modes disponibles: full, immich, seafile, baikal, vaultwarden, paperless"
             exit 1
             ;;
     esac

@@ -2,7 +2,7 @@
 # ===========================================
 # Script de Restore Family Cloud depuis R2
 # ===========================================
-# Usage: ./restore.sh [--list|--immich|--seafile|--stalwart] [timestamp]
+# Usage: ./restore.sh [--list|--immich|--seafile|--baikal|--vaultwarden|--paperless] [timestamp]
 #
 # Exemples:
 #   ./restore.sh --list              # Lister les backups disponibles
@@ -55,8 +55,16 @@ list_backups() {
     rclone ls "r2:${R2_BUCKET_NAME}/seafile/database/" 2>/dev/null || echo "Aucun backup"
 
     log ""
-    log "=== Backups Stalwart ==="
-    rclone ls "r2:${R2_BUCKET_NAME}/stalwart/" 2>/dev/null || echo "Aucun backup"
+    log "=== Backups Baikal ==="
+    rclone ls "r2:${R2_BUCKET_NAME}/baikal/" 2>/dev/null || echo "Aucun backup"
+
+    log ""
+    log "=== Backups Vaultwarden ==="
+    rclone ls "r2:${R2_BUCKET_NAME}/vaultwarden/" 2>/dev/null || echo "Aucun backup"
+
+    log ""
+    log "=== Backups Paperless ==="
+    rclone ls "r2:${R2_BUCKET_NAME}/paperless/" 2>/dev/null || echo "Aucun backup"
 }
 
 restore_immich() {
@@ -147,11 +155,11 @@ restore_seafile() {
     log "Restauration Seafile terminee!"
 }
 
-restore_stalwart() {
+restore_baikal() {
     local timestamp="$1"
-    log "=== Restauration Stalwart ==="
+    log "=== Restauration Baikal ==="
 
-    local archive_file=$(rclone ls "r2:${R2_BUCKET_NAME}/stalwart/" 2>/dev/null | grep "$timestamp" | awk '{print $2}' | head -1)
+    local archive_file=$(rclone ls "r2:${R2_BUCKET_NAME}/baikal/" 2>/dev/null | grep "$timestamp" | awk '{print $2}' | head -1)
 
     if [[ -z "$archive_file" ]]; then
         log "ERREUR: Aucun backup trouve pour le timestamp: $timestamp"
@@ -169,26 +177,116 @@ restore_stalwart() {
     fi
 
     mkdir -p "$BACKUP_PATH"
-    rclone copy "r2:${R2_BUCKET_NAME}/stalwart/${archive_file}" "$BACKUP_PATH/"
+    rclone copy "r2:${R2_BUCKET_NAME}/baikal/${archive_file}" "$BACKUP_PATH/"
 
     local local_file="${BACKUP_PATH}/${archive_file}"
     local_file=$(decrypt_file "$local_file")
 
-    log "Arret de Stalwart..."
-    docker stop stalwart 2>/dev/null || true
+    log "Arret de Baikal..."
+    docker stop baikal 2>/dev/null || true
 
     log "Restauration des donnees..."
     docker run --rm \
-        -v stalwart_data:/target \
+        -v baikal_config:/config \
+        -v baikal_data:/data \
         -v "${BACKUP_PATH}:/backup:ro" \
-        alpine sh -c "rm -rf /target/* && tar xzf /backup/$(basename "$local_file") -C /target"
+        alpine sh -c "rm -rf /config/* /data/* && tar xzf /backup/$(basename "$local_file") -C /"
 
-    log "Redemarrage de Stalwart..."
-    docker start stalwart
+    log "Redemarrage de Baikal..."
+    docker start baikal
 
     rm -f "$local_file"
 
-    log "Restauration Stalwart terminee!"
+    log "Restauration Baikal terminee!"
+}
+
+restore_vaultwarden() {
+    local timestamp="$1"
+    log "=== Restauration Vaultwarden ==="
+
+    local archive_file=$(rclone ls "r2:${R2_BUCKET_NAME}/vaultwarden/" 2>/dev/null | grep "$timestamp" | awk '{print $2}' | head -1)
+
+    if [[ -z "$archive_file" ]]; then
+        log "ERREUR: Aucun backup trouve pour le timestamp: $timestamp"
+        exit 1
+    fi
+
+    log "Backup trouve: $archive_file"
+    log "ATTENTION: Cela va ecraser les donnees actuelles!"
+    read -p "Continuer? (y/N) " -n 1 -r
+    echo
+
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log "Annule."
+        exit 0
+    fi
+
+    mkdir -p "$BACKUP_PATH"
+    rclone copy "r2:${R2_BUCKET_NAME}/vaultwarden/${archive_file}" "$BACKUP_PATH/"
+
+    local local_file="${BACKUP_PATH}/${archive_file}"
+    local_file=$(decrypt_file "$local_file")
+
+    log "Arret de Vaultwarden..."
+    docker stop vaultwarden 2>/dev/null || true
+
+    log "Restauration des donnees..."
+    docker run --rm \
+        -v vaultwarden_data:/target \
+        -v "${BACKUP_PATH}:/backup:ro" \
+        alpine sh -c "rm -rf /target/* && tar xzf /backup/$(basename "$local_file") -C /target"
+
+    log "Redemarrage de Vaultwarden..."
+    docker start vaultwarden
+
+    rm -f "$local_file"
+
+    log "Restauration Vaultwarden terminee!"
+}
+
+restore_paperless() {
+    local timestamp="$1"
+    log "=== Restauration Paperless ==="
+
+    local archive_file=$(rclone ls "r2:${R2_BUCKET_NAME}/paperless/" 2>/dev/null | grep "$timestamp" | awk '{print $2}' | head -1)
+
+    if [[ -z "$archive_file" ]]; then
+        log "ERREUR: Aucun backup trouve pour le timestamp: $timestamp"
+        exit 1
+    fi
+
+    log "Backup trouve: $archive_file"
+    log "ATTENTION: Cela va ecraser les donnees actuelles!"
+    read -p "Continuer? (y/N) " -n 1 -r
+    echo
+
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log "Annule."
+        exit 0
+    fi
+
+    mkdir -p "$BACKUP_PATH"
+    rclone copy "r2:${R2_BUCKET_NAME}/paperless/${archive_file}" "$BACKUP_PATH/"
+
+    local local_file="${BACKUP_PATH}/${archive_file}"
+    local_file=$(decrypt_file "$local_file")
+
+    log "Arret de Paperless..."
+    docker stop paperless paperless-redis 2>/dev/null || true
+
+    log "Restauration des donnees..."
+    docker run --rm \
+        -v paperless_data:/data \
+        -v paperless_media:/media \
+        -v "${BACKUP_PATH}:/backup:ro" \
+        alpine sh -c "rm -rf /data/* /media/* && tar xzf /backup/$(basename "$local_file") -C /"
+
+    log "Redemarrage de Paperless..."
+    docker start paperless-redis paperless
+
+    rm -f "$local_file"
+
+    log "Restauration Paperless terminee!"
 }
 
 # Main
@@ -210,21 +308,37 @@ case "${1:-}" in
         fi
         restore_seafile "$2"
         ;;
-    "--stalwart"|"stalwart")
+    "--baikal"|"baikal")
         if [[ -z "${2:-}" ]]; then
-            echo "Usage: $0 --stalwart <timestamp>"
+            echo "Usage: $0 --baikal <timestamp>"
             exit 1
         fi
-        restore_stalwart "$2"
+        restore_baikal "$2"
+        ;;
+    "--vaultwarden"|"vaultwarden")
+        if [[ -z "${2:-}" ]]; then
+            echo "Usage: $0 --vaultwarden <timestamp>"
+            exit 1
+        fi
+        restore_vaultwarden "$2"
+        ;;
+    "--paperless"|"paperless")
+        if [[ -z "${2:-}" ]]; then
+            echo "Usage: $0 --paperless <timestamp>"
+            exit 1
+        fi
+        restore_paperless "$2"
         ;;
     *)
-        echo "Usage: $0 [--list|--immich|--seafile|--stalwart] [timestamp]"
+        echo "Usage: $0 [--list|--immich|--seafile|--baikal|--vaultwarden|--paperless] [timestamp]"
         echo ""
         echo "Options:"
-        echo "  --list              Lister les backups disponibles"
-        echo "  --immich <ts>       Restaurer Immich"
-        echo "  --seafile <ts>      Restaurer Seafile"
-        echo "  --stalwart <ts>     Restaurer Stalwart"
+        echo "  --list                Lister les backups disponibles"
+        echo "  --immich <ts>         Restaurer Immich"
+        echo "  --seafile <ts>        Restaurer Seafile"
+        echo "  --baikal <ts>         Restaurer Baikal"
+        echo "  --vaultwarden <ts>    Restaurer Vaultwarden"
+        echo "  --paperless <ts>      Restaurer Paperless"
         exit 1
         ;;
 esac

@@ -33,6 +33,10 @@ services:
       - immich-server
       - seafile
       - baikal
+      - vaultwarden
+      - paperless
+      - homepage
+      - stirling-pdf
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
       interval: 30s
@@ -194,6 +198,122 @@ services:
       - frontend
     environment:
       - TZ=${TZ}
+
+  # ===========================================
+  # VAULTWARDEN - Gestionnaire de mots de passe
+  # ===========================================
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    restart: unless-stopped
+    volumes:
+      - vaultwarden_data:/data
+    networks:
+      - frontend
+    environment:
+      - TZ=${TZ}
+      - DOMAIN=https://${VAULTWARDEN_DOMAIN}
+      - SIGNUPS_ALLOWED=${VAULTWARDEN_SIGNUPS_ALLOWED:-false}
+      - ADMIN_TOKEN=${VAULTWARDEN_ADMIN_TOKEN:-}
+      - WEBSOCKET_ENABLED=true
+      - LOG_LEVEL=info
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/alive"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================
+  # PAPERLESS-NGX - Gestion de documents
+  # ===========================================
+  paperless-redis:
+    image: redis:7-alpine
+    container_name: paperless-redis
+    restart: unless-stopped
+    volumes:
+      - paperless_redis_data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx:latest
+    container_name: paperless
+    restart: unless-stopped
+    volumes:
+      - paperless_data:/usr/src/paperless/data
+      - paperless_media:/usr/src/paperless/media
+      - paperless_export:/usr/src/paperless/export
+      - paperless_consume:/usr/src/paperless/consume
+    networks:
+      - frontend
+      - backend
+    environment:
+      - PAPERLESS_URL=https://${PAPERLESS_DOMAIN}
+      - PAPERLESS_SECRET_KEY=${PAPERLESS_SECRET_KEY}
+      - PAPERLESS_TIME_ZONE=${TZ}
+      - PAPERLESS_OCR_LANGUAGE=fra+eng
+      - PAPERLESS_REDIS=redis://paperless-redis:6379
+      - PAPERLESS_ADMIN_USER=${PAPERLESS_ADMIN_USER}
+      - PAPERLESS_ADMIN_PASSWORD=${PAPERLESS_ADMIN_PASSWORD}
+      - PAPERLESS_ADMIN_MAIL=${PAPERLESS_ADMIN_MAIL}
+    depends_on:
+      paperless-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ===========================================
+  # HOMEPAGE - Dashboard
+  # ===========================================
+  homepage:
+    image: ghcr.io/gethomepage/homepage:latest
+    container_name: homepage
+    restart: unless-stopped
+    volumes:
+      - ./homepage:/app/config
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - frontend
+    environment:
+      - TZ=${TZ}
+      - HOMEPAGE_ALLOWED_HOSTS=${HOMEPAGE_DOMAIN}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===========================================
+  # STIRLING-PDF - Manipulation de PDFs
+  # ===========================================
+  stirling-pdf:
+    image: frooodle/s-pdf:latest
+    container_name: stirling-pdf
+    restart: unless-stopped
+    volumes:
+      - stirling_data:/usr/share/tessdata
+      - stirling_config:/configs
+    networks:
+      - frontend
+    environment:
+      - TZ=${TZ}
+      - DOCKER_ENABLE_SECURITY=false
+      - SECURITY_ENABLE_LOGIN=false
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 # ===========================================
 # Reseaux Docker isoles
 # ===========================================
@@ -227,6 +347,25 @@ volumes:
     name: baikal_config
   baikal_data:
     name: baikal_data
+  # Vaultwarden
+  vaultwarden_data:
+    name: vaultwarden_data
+  # Paperless-ngx
+  paperless_data:
+    name: paperless_data
+  paperless_media:
+    name: paperless_media
+  paperless_export:
+    name: paperless_export
+  paperless_consume:
+    name: paperless_consume
+  paperless_redis_data:
+    name: paperless_redis
+  # Stirling PDF
+  stirling_data:
+    name: stirling_data
+  stirling_config:
+    name: stirling_config
   # Caddy
   caddy_data:
     name: family_caddy_data
