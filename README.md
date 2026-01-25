@@ -1,14 +1,20 @@
-# Family Cloud (Immich + Seafile + Stalwart)
+# Family Cloud
 
-Infrastructure self-hosted pour une famille : photos, fichiers et calendriers/contacts.
+Infrastructure self-hosted pour une famille : photos, fichiers, documents, medias et plus.
 
 ## Stack Technique
 
-| Service | Usage | Technologie |
-|---------|-------|-------------|
-| **Immich** | Photos/Videos | Alternative Google Photos |
-| **Seafile CE** | Fichiers | Sync/partage de fichiers |
-| **Stalwart** | CalDAV/CardDAV | Calendriers et contacts |
+| Service | Usage | URL |
+|---------|-------|-----|
+| **Immich** | Photos/Videos | `photos.*` |
+| **Seafile** | Sync de fichiers | `files.*` |
+| **Baikal** | CalDAV/CardDAV | `dav.*` |
+| **Vaultwarden** | Mots de passe | `vault.*` |
+| **Paperless-ngx** | GED / Documents | `docs.*` |
+| **Jellyfin** | Films & Series | `media.*` |
+| **Audiobookshelf** | Audiobooks & Podcasts | `books.*` |
+| **Homepage** | Dashboard | `home.*` |
+| **Stirling PDF** | Outils PDF | `pdf.*` |
 
 | Infrastructure | Technologie |
 |----------------|-------------|
@@ -31,33 +37,20 @@ Internet
                           │ HTTP interne
 ┌─────────────────────────▼───────────────────────────────────┐
 │                    Caddy (Reverse Proxy)                    │
-│         photos.* → Immich    files.* → Seafile              │
-│                    mail.* → Stalwart                        │
+│   photos.* → Immich       files.* → Seafile                 │
+│   dav.* → Baikal          vault.* → Vaultwarden             │
+│   docs.* → Paperless      media.* → Jellyfin                │
+│   books.* → Audiobookshelf  home.* → Homepage               │
+│   pdf.* → Stirling PDF                                      │
 └─────────────────────────┬───────────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────┐
 │               Reseau Docker Backend (interne)               │
 │                                                             │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │ IMMICH                                                │  │
-│  │ ┌────────────┐  ┌──────────┐  ┌───────┐  ┌───────┐   │  │
-│  │ │   Server   │  │    ML    │  │ Postgres│ │ Redis │   │  │
-│  │ └────────────┘  └──────────┘  └─────────┘ └───────┘   │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                             │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │ SEAFILE                                               │  │
-│  │ ┌────────────┐  ┌──────────┐  ┌───────────┐          │  │
-│  │ │   Seafile  │  │ MariaDB  │  │ Memcached │          │  │
-│  │ └────────────┘  └──────────┘  └───────────┘          │  │
-│  └──────────────────────────────────────────────────────┘  │
-│                                                             │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │ STALWART                                              │  │
-│  │ ┌────────────────────────────────────────────────┐   │  │
-│  │ │   Mail Server (CalDAV/CardDAV/JMAP)            │   │  │
-│  │ └────────────────────────────────────────────────┘   │  │
-│  └──────────────────────────────────────────────────────┘  │
+│  IMMICH: Server + ML + PostgreSQL + Redis                   │
+│  SEAFILE: Seafile + MariaDB + Memcached                     │
+│  PAPERLESS: Paperless + Redis                               │
+│  JELLYFIN, AUDIOBOOKSHELF, VAULTWARDEN, BAIKAL, etc.        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -68,7 +61,7 @@ Internet
 - Compte Cloudflare avec :
   - Zero Trust (gratuit) pour le tunnel
   - R2 active (pour les backups)
-- 4GB+ RAM (8GB recommande pour le ML d'Immich)
+- 8GB+ RAM (recommande pour Immich ML + Jellyfin)
 
 ---
 
@@ -85,7 +78,7 @@ curl -fsSL https://get.docker.com | sudo sh
 sudo usermod -aG docker $USER
 
 # Outils
-sudo apt install rclone git age -y
+sudo apt install rclone git -y
 
 # Reconnecter pour appliquer le groupe docker
 exit
@@ -104,29 +97,15 @@ Configurer les **Public Hostnames** :
 |----------|---------|
 | `photos.votredomaine.com` | `http://caddy:80` |
 | `files.votredomaine.com` | `http://caddy:80` |
-| `mail.votredomaine.com` | `http://caddy:80` |
+| `dav.votredomaine.com` | `http://caddy:80` |
+| `vault.votredomaine.com` | `http://caddy:80` |
+| `docs.votredomaine.com` | `http://caddy:80` |
+| `media.votredomaine.com` | `http://caddy:80` |
+| `books.votredomaine.com` | `http://caddy:80` |
+| `home.votredomaine.com` | `http://caddy:80` |
+| `pdf.votredomaine.com` | `http://caddy:80` |
 
-### 3. Configuration Rclone (Backups R2)
-
-```bash
-rclone config
-
-# n) New remote
-# name> r2
-# Storage> s3
-# provider> Cloudflare
-# access_key_id> [Votre R2 Access Key]
-# secret_access_key> [Votre R2 Secret Key]
-# endpoint> https://[ACCOUNT_ID].r2.cloudflarestorage.com
-
-# Tester
-rclone lsd r2:
-
-# Creer le bucket
-rclone mkdir r2:family-backup
-```
-
-### 4. Cloner et Configurer
+### 3. Cloner et Configurer
 
 ```bash
 cd ~
@@ -144,13 +123,20 @@ Generer les mots de passe :
 echo "IMMICH_DB_PASSWORD=$(openssl rand -base64 32)"
 echo "SEAFILE_ADMIN_PASSWORD=$(openssl rand -base64 24)"
 echo "SEAFILE_DB_ROOT_PASSWORD=$(openssl rand -base64 32)"
+echo "VAULTWARDEN_ADMIN_TOKEN=$(openssl rand -base64 32)"
+echo "PAPERLESS_SECRET_KEY=$(openssl rand -base64 32)"
 ```
 
-Creer le repertoire pour les photos Immich :
+### 4. Configuration Rclone (Backups R2)
 
 ```bash
-mkdir -p ~/family-cloud/immich-upload
-# Mettre ce chemin dans UPLOAD_LOCATION du .env
+# Utiliser le script fourni
+./scripts/setup-rclone.sh
+
+# Ou manuellement
+rclone config
+# n) New remote → name: r2 → Storage: s3 → provider: Cloudflare
+# Puis entrer les credentials R2
 ```
 
 ### 5. Lancer
@@ -163,18 +149,17 @@ docker compose logs -f
 
 ### 6. Configuration Initiale
 
-#### Immich
-- Acceder a `https://photos.votredomaine.com`
-- Creer le compte admin au premier acces
-
-#### Seafile
-- Acceder a `https://files.votredomaine.com`
-- Se connecter avec les credentials du `.env`
-
-#### Stalwart
-- Acceder a `https://mail.votredomaine.com`
-- Suivre l'assistant de configuration
-- Creer les utilisateurs pour la famille
+| Service | URL | Configuration |
+|---------|-----|---------------|
+| **Immich** | `photos.*` | Creer compte admin au premier acces |
+| **Seafile** | `files.*` | Login avec credentials du `.env` |
+| **Baikal** | `dav.*` | Assistant de configuration |
+| **Vaultwarden** | `vault.*` | Creer compte, admin sur `/admin` |
+| **Paperless** | `docs.*` | Login avec credentials du `.env` |
+| **Jellyfin** | `media.*` | Assistant de configuration |
+| **Audiobookshelf** | `books.*` | Creer compte admin |
+| **Homepage** | `home.*` | Dashboard pre-configure |
+| **Stirling PDF** | `pdf.*` | Pret a l'emploi |
 
 ---
 
@@ -182,30 +167,52 @@ docker compose logs -f
 
 ### Immich (Photos)
 
-**Mobile** : Installer l'app Immich (Android/iOS)
+**Mobile** : App Immich (Android/iOS)
 - Server URL: `https://photos.votredomaine.com`
 - Activer le backup automatique
-
-**Desktop** : Interface web ou CLI
 
 ### Seafile (Fichiers)
 
 **Mobile** : Seadrive (Android/iOS)
-**Desktop** : Seafile Client (Windows/Mac/Linux)
+**Desktop** : Seafile Client
 - Server: `https://files.votredomaine.com`
 
-### Stalwart (CalDAV/CardDAV)
+### Baikal (CalDAV/CardDAV)
 
-**iOS/macOS** :
-- Reglages → Calendrier/Contacts → Ajouter compte → Autre
-- CalDAV/CardDAV: `https://mail.votredomaine.com`
+**Android** : DAVx5 (gratuit sur F-Droid)
+**iOS** : Reglages → Calendrier/Contacts → Ajouter compte
+- URL: `https://dav.votredomaine.com`
 
-**Android** :
-- Installer DAVx5
-- Ajouter compte avec l'URL du serveur
+### Vaultwarden (Mots de passe)
 
-**Thunderbird** :
-- Ajouter calendrier distant CardDAV/CalDAV
+**Tous** : App Bitwarden officielle
+- Server: `https://vault.votredomaine.com`
+
+### Jellyfin (Films/Series)
+
+**Mobile** : App Jellyfin (Android/iOS)
+**TV** : App Jellyfin (Android TV, Fire TV, etc.)
+- Server: `https://media.votredomaine.com`
+
+### Audiobookshelf (Audiobooks)
+
+**Mobile** : App Audiobookshelf (Android/iOS)
+- Server: `https://books.votredomaine.com`
+
+---
+
+## Structure des Donnees
+
+```
+/mnt/stockage/family_cloud/
+├── immich/upload/          # Photos et videos
+├── backups/                # Dumps temporaires
+└── media/
+    ├── films/              # Jellyfin
+    ├── series/             # Jellyfin
+    ├── livres/             # Audiobookshelf (ebooks)
+    └── audiobooks/         # Audiobookshelf
+```
 
 ---
 
@@ -220,7 +227,9 @@ docker compose logs -f
 # Backup specifique
 ./scripts/backup.sh --immich
 ./scripts/backup.sh --seafile
-./scripts/backup.sh --stalwart
+./scripts/backup.sh --baikal
+./scripts/backup.sh --vaultwarden
+./scripts/backup.sh --paperless
 ```
 
 ### Backup Automatique (Cron)
@@ -229,7 +238,10 @@ docker compose logs -f
 crontab -e
 
 # Backup complet tous les jours a 3h
-0 3 * * * /home/user/family-cloud/scripts/backup.sh >> /var/log/family-backup.log 2>&1
+0 3 * * * /srv/family_cloud/scripts/backup.sh >> /var/log/family-backup.log 2>&1
+
+# Alerte disque toutes les 6h
+0 */6 * * * /srv/family_cloud/scripts/disk-alert.sh
 ```
 
 ### Restauration
@@ -241,8 +253,18 @@ crontab -e
 # Restaurer un service
 ./scripts/restore.sh --immich 20240115
 ./scripts/restore.sh --seafile 20240115
-./scripts/restore.sh --stalwart 20240115
+./scripts/restore.sh --vaultwarden 20240115
 ```
+
+---
+
+## Maintenance
+
+Voir [docs/MAINTENANCE.md](docs/MAINTENANCE.md) pour :
+- Surveillance du stockage
+- Procedure d'upgrade disque
+- Nettoyage d'urgence
+- Checklist mensuelle
 
 ---
 
@@ -271,14 +293,17 @@ family-cloud/
 ├── docker-compose.yml      # Orchestration
 ├── .env.example            # Template configuration
 ├── .env                    # Configuration (non versionne)
-├── README.md
-├── LICENSE
 ├── caddy/
 │   └── Caddyfile           # Reverse proxy config
+├── homepage/               # Config Homepage dashboard
 ├── scripts/
 │   ├── backup.sh           # Backup vers R2
 │   ├── restore.sh          # Restauration
-│   └── health-check.sh     # Monitoring
+│   ├── health-check.sh     # Monitoring
+│   ├── disk-alert.sh       # Alerte stockage
+│   └── setup-rclone.sh     # Config rclone R2
+├── docs/
+│   └── MAINTENANCE.md      # Guide maintenance
 └── backups/                # Dumps locaux temporaires
 ```
 
@@ -291,20 +316,14 @@ family-cloud/
 - Reseau backend Docker isole
 - Headers de securite (HSTS, CSP, etc.)
 - Backups chiffres (optionnel avec age)
+- Geo-blocking recommande via Cloudflare WAF
 
-### Durcissement
+### Geo-blocking (Cloudflare)
 
-```bash
-# Pare-feu UFW
-sudo ufw default deny incoming
-sudo ufw default allow outgoing
-sudo ufw allow ssh
-sudo ufw enable
-
-# Desactiver root SSH
-sudo sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
-sudo systemctl restart sshd
-```
+Pour bloquer les acces hors France :
+1. Cloudflare Dashboard → Security → WAF → Custom rules
+2. Expression: `(ip.geoip.country ne "FR")`
+3. Action: Block
 
 ---
 
@@ -321,23 +340,11 @@ docker compose logs [service]
 
 ### Immich ML lent au demarrage
 
-C'est normal, le premier demarrage telecharge les modeles ML (~2-4GB).
+Normal, le premier demarrage telecharge les modeles ML (~2-4GB).
 
-### Seafile erreur de login
+### Jellyfin transcodage lent
 
-Verifier que `SEAFILE_SERVER_HOSTNAME` correspond au domaine configure.
-
----
-
-## Renommer le Repository
-
-Si vous avez clone ce repo sous un autre nom (ex: `nextcloud`), vous pouvez le renommer :
-
-1. **Sur GitHub** : Settings → General → Repository name → `family-cloud` → Rename
-2. **En local** :
-```bash
-git remote set-url origin git@github.com:VOTRE_USER/family-cloud.git
-```
+Verifier l'acceleration materielle dans les parametres Jellyfin.
 
 ---
 
