@@ -353,6 +353,7 @@ services:
       - audiobookshelf_metadata:/metadata
       - ${MEDIA_PATH}/audiobooks:/audiobooks
       - ${MEDIA_PATH}/livres:/books
+      - /home/franck/Documents/bibliothèques:/calibre
     networks:
       - frontend
     environment:
