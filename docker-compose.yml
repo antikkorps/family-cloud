@@ -39,6 +39,7 @@ services:
       - stirling-pdf
       - jellyfin
       - audiobookshelf
+      - memos
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
       interval: 30s
@@ -358,6 +359,25 @@ services:
       - TZ=${TZ}
     # Note: pas de healthcheck car l'image n'inclut pas curl/wget
 
+  # ===========================================
+  # MEMOS - Notes & Memos
+  # ===========================================
+  memos:
+    image: neosmemo/memos:stable
+    container_name: memos
+    restart: unless-stopped
+    volumes:
+      - memos_data:/var/opt/memos
+    networks:
+      - frontend
+    environment:
+      - TZ=${TZ}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5230/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
 # ===========================================
 # Reseaux Docker isoles
 # ===========================================
@@ -420,6 +440,9 @@ volumes:
     name: audiobookshelf_config
   audiobookshelf_metadata:
     name: audiobookshelf_metadata
+  # Memos
+  memos_data:
+    name: memos_data
   # Caddy
   caddy_data:
     name: family_caddy_data

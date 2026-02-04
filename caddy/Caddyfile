@@ -140,6 +140,17 @@
 	}
 
 	# ===========================================
+	# MEMOS - notes.* (Notes)
+	# ===========================================
+	@memos header_regexp host Host ^notes\.
+	handle @memos {
+		reverse_proxy memos:5230 {
+			header_up X-Real-IP {header.CF-Connecting-IP}
+			header_up X-Forwarded-For {header.CF-Connecting-IP}
+		}
+	}
+
+	# ===========================================
 	# Health check
 	# ===========================================
 	handle /health {

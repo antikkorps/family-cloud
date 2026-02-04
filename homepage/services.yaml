@@ -18,6 +18,12 @@
         description: Paperless-ngx - GED
         server: my-docker
         container: paperless
+    - Notes:
+        icon: memos.png
+        href: https://notes.fvienot.link
+        description: Memos - Notes & Memos
+        server: my-docker
+        container: memos
 
 - Media:
     - Films & Series:
