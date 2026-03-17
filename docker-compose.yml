@@ -329,6 +329,7 @@ services:
       - jellyfin_cache:/cache
       - ${MEDIA_PATH}/films:/media/films:ro
       - ${MEDIA_PATH}/series:/media/series:ro
+      - /media/franck/LaCie/films:/media/dvd-films:ro
     networks:
       - frontend
     environment:
