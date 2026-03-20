@@ -330,6 +330,7 @@ services:
       - ${MEDIA_PATH}/films:/media/films:ro
       - ${MEDIA_PATH}/series:/media/series:ro
       - /media/franck/LaCie/films:/media/dvd-films:ro
+      - /media/franck/LaCie/series:/media/dvd-series:ro
     networks:
       - frontend
     environment:
