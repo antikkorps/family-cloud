@@ -150,6 +150,11 @@ services:
       - SEAFILE_SERVER_HOSTNAME=${SEAFILE_DOMAIN}
       - SEAFILE_SERVER_LETSENCRYPT=false
       - TIME_ZONE=${TZ}
+      - CCNET_CONF_DIR=/opt/seafile/ccnet
+      - SEAFILE_CONF_DIR=/opt/seafile/seafile-data
+      - SEAFILE_CENTRAL_CONF_DIR=/opt/seafile/conf
+      - SEAHUB_DIR=/opt/seafile/seafile-server-latest/seahub
+      - SEAFES_DIR=/opt/seafile/seafile-server-latest/pro/python/seafes
     depends_on:
       seafile-mariadb:
         condition: service_healthy
