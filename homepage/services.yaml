@@ -52,9 +52,3 @@
         description: Stirling PDF
         server: my-docker
         container: stirling-pdf
-    - Calendrier:
-        icon: mdi-calendar-sync
-        href: https://dav.fvienot.link
-        description: Baikal - CalDAV/CardDAV
-        server: my-docker
-        container: baikal

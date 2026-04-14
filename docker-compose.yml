@@ -32,7 +32,6 @@ services:
     depends_on:
       - immich-server
       - seafile
-      - baikal
       - vaultwarden
       - paperless
       - homepage
@@ -191,21 +190,6 @@ services:
     entrypoint: memcached -m 256
     networks:
       - backend
-
-  # ===========================================
-  # BAIKAL - CalDAV/CardDAV
-  # ===========================================
-  baikal:
-    image: ckulka/baikal:nginx
-    container_name: baikal
-    restart: unless-stopped
-    volumes:
-      - baikal_config:/var/www/baikal/config
-      - baikal_data:/var/www/baikal/Specific
-    networks:
-      - frontend
-    environment:
-      - TZ=${TZ}
 
   # ===========================================
   # VAULTWARDEN - Gestionnaire de mots de passe
@@ -415,11 +399,6 @@ volumes:
     name: seafile_data
   seafile_mysql_data:
     name: seafile_mysql
-  # Baikal
-  baikal_config:
-    name: baikal_config
-  baikal_data:
-    name: baikal_data
   # Vaultwarden
   vaultwarden_data:
     name: vaultwarden_data

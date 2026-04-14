@@ -62,17 +62,6 @@
 	}
 
 	# ===========================================
-	# BAIKAL - dav.* (CalDAV/CardDAV)
-	# ===========================================
-	@baikal header_regexp host Host ^dav\.
-	handle @baikal {
-		reverse_proxy baikal:80 {
-			header_up X-Real-IP {header.CF-Connecting-IP}
-			header_up X-Forwarded-For {header.CF-Connecting-IP}
-		}
-	}
-
-	# ===========================================
 	# VAULTWARDEN - vault.* (Mots de passe)
 	# ===========================================
 	@vaultwarden header_regexp host Host ^vault\.

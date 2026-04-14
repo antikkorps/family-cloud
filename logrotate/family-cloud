@@ -1,0 +1,11 @@
+/var/log/family-backup.log
+/var/log/family-disk-alert.log
+{
+    weekly
+    rotate 4
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 root root
+}
