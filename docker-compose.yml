@@ -39,6 +39,7 @@ services:
       - jellyfin
       - audiobookshelf
       - memos
+      - linkwarden
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:80/health"]
       interval: 30s
@@ -334,6 +335,67 @@ services:
       start_period: 30s
 
   # ===========================================
+  # LINKWARDEN - Gestionnaire de favoris
+  # ===========================================
+  linkwarden:
+    image: ghcr.io/linkwarden/linkwarden:latest
+    container_name: linkwarden
+    restart: unless-stopped
+    volumes:
+      - linkwarden_data:/data/data
+    networks:
+      - frontend
+      - backend
+    environment:
+      - TZ=${TZ}
+      - NEXTAUTH_SECRET=${LINKWARDEN_NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=https://${LINKWARDEN_DOMAIN}/api/v1/auth
+      - DATABASE_URL=postgresql://postgres:${LINKWARDEN_POSTGRES_PASSWORD}@linkwarden-postgres:5432/linkwarden
+      - MEILI_ADDR=http://linkwarden-meilisearch:7700
+      - MEILI_MASTER_KEY=${LINKWARDEN_MEILI_MASTER_KEY}
+      - NEXT_PUBLIC_DISABLE_REGISTRATION=true
+    depends_on:
+      linkwarden-postgres:
+        condition: service_healthy
+      linkwarden-meilisearch:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/v1/auth/session"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  linkwarden-postgres:
+    image: postgres:16-alpine
+    container_name: linkwarden-postgres
+    restart: unless-stopped
+    volumes:
+      - linkwarden_postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    environment:
+      - POSTGRES_PASSWORD=${LINKWARDEN_POSTGRES_PASSWORD}
+      - POSTGRES_DB=linkwarden
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d linkwarden -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  linkwarden-meilisearch:
+    image: getmeili/meilisearch:v1.12
+    container_name: linkwarden-meilisearch
+    restart: unless-stopped
+    volumes:
+      - linkwarden_meili_data:/meili_data
+    networks:
+      - backend
+    environment:
+      - MEILI_MASTER_KEY=${LINKWARDEN_MEILI_MASTER_KEY}
+      - MEILI_NO_ANALYTICS=true
+
+  # ===========================================
   # AUDIOBOOKSHELF - Audiobooks & Podcasts
   # ===========================================
   audiobookshelf:
@@ -431,6 +493,13 @@ volumes:
   # Memos
   memos_data:
     name: memos_data
+  # Linkwarden
+  linkwarden_data:
+    name: linkwarden_data
+  linkwarden_postgres_data:
+    name: linkwarden_postgres
+  linkwarden_meili_data:
+    name: linkwarden_meili
   # Caddy
   caddy_data:
     name: family_caddy_data
