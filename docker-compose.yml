@@ -134,7 +134,7 @@ services:
   # SEAFILE - Synchronisation de fichiers
   # ===========================================
   seafile:
-    image: seafileltd/seafile-mc:11.0-latest
+    image: seafileltd/seafile-mc:13.0.12
     container_name: seafile
     restart: unless-stopped
     volumes:
@@ -143,18 +143,27 @@ services:
       - frontend
       - backend
     environment:
-      - DB_HOST=seafile-mariadb
-      - DB_ROOT_PASSWD=${SEAFILE_DB_ROOT_PASSWORD}
-      - SEAFILE_ADMIN_EMAIL=${SEAFILE_ADMIN_EMAIL}
-      - SEAFILE_ADMIN_PASSWORD=${SEAFILE_ADMIN_PASSWORD}
-      - SEAFILE_SERVER_HOSTNAME=${SEAFILE_DOMAIN}
-      - SEAFILE_SERVER_LETSENCRYPT=false
+      - SEAFILE_MYSQL_DB_HOST=seafile-mariadb
+      - SEAFILE_MYSQL_DB_PORT=3306
+      - SEAFILE_MYSQL_DB_USER=seafile
+      - SEAFILE_MYSQL_DB_PASSWORD=${SEAFILE_MYSQL_DB_PASSWORD}
+      - INIT_SEAFILE_MYSQL_ROOT_PASSWORD=${SEAFILE_DB_ROOT_PASSWORD}
+      - SEAFILE_MYSQL_DB_CCNET_DB_NAME=ccnet_db
+      - SEAFILE_MYSQL_DB_SEAFILE_DB_NAME=seafile_db
+      - SEAFILE_MYSQL_DB_SEAHUB_DB_NAME=seahub_db
       - TIME_ZONE=${TZ}
-      - CCNET_CONF_DIR=/opt/seafile/ccnet
-      - SEAFILE_CONF_DIR=/opt/seafile/seafile-data
-      - SEAFILE_CENTRAL_CONF_DIR=/opt/seafile/conf
-      - SEAHUB_DIR=/opt/seafile/seafile-server-latest/seahub
-      - SEAFES_DIR=/opt/seafile/seafile-server-latest/pro/python/seafes
+      - INIT_SEAFILE_ADMIN_EMAIL=${SEAFILE_ADMIN_EMAIL}
+      - INIT_SEAFILE_ADMIN_PASSWORD=${SEAFILE_ADMIN_PASSWORD}
+      - SEAFILE_SERVER_HOSTNAME=${SEAFILE_DOMAIN}
+      - SEAFILE_SERVER_PROTOCOL=https
+      - JWT_PRIVATE_KEY=${SEAFILE_JWT_PRIVATE_KEY}
+      - SEAFILE_LOG_TO_STDOUT=true
+      - CACHE_PROVIDER=memcached
+      - MEMCACHED_HOST=seafile-memcached
+      - MEMCACHED_PORT=11211
+      - ENABLE_GO_FILESERVER=true
+      - ENABLE_SEADOC=false
+      - ENABLE_NOTIFICATION_SERVER=false
     depends_on:
       seafile-mariadb:
         condition: service_healthy
@@ -165,7 +174,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 90s
+      start_period: 120s
 
   seafile-mariadb:
     image: mariadb:10.11

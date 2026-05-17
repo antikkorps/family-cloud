@@ -58,6 +58,8 @@
 			flush_interval -1
 			header_up X-Real-IP {header.CF-Connecting-IP}
 			header_up X-Forwarded-For {header.CF-Connecting-IP}
+			header_up X-Forwarded-Proto https
+			header_up Host {host}
 		}
 	}
 
