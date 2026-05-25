@@ -46,6 +46,7 @@
 			flush_interval -1
 			header_up X-Real-IP {header.CF-Connecting-IP}
 			header_up X-Forwarded-For {header.CF-Connecting-IP}
+			header_up X-Forwarded-Proto https
 		}
 	}
 
@@ -71,6 +72,7 @@
 		reverse_proxy vaultwarden:80 {
 			header_up X-Real-IP {header.CF-Connecting-IP}
 			header_up X-Forwarded-For {header.CF-Connecting-IP}
+			header_up X-Forwarded-Proto https
 		}
 	}
 
@@ -82,6 +84,7 @@
 		reverse_proxy paperless:8000 {
 			header_up X-Real-IP {header.CF-Connecting-IP}
 			header_up X-Forwarded-For {header.CF-Connecting-IP}
+			header_up X-Forwarded-Proto https
 		}
 	}
 
@@ -93,6 +96,7 @@
 		reverse_proxy homepage:3000 {
 			header_up X-Real-IP {header.CF-Connecting-IP}
 			header_up X-Forwarded-For {header.CF-Connecting-IP}
+			header_up X-Forwarded-Proto https
 		}
 	}
 
@@ -104,6 +108,7 @@
 		reverse_proxy stirling-pdf:8080 {
 			header_up X-Real-IP {header.CF-Connecting-IP}
 			header_up X-Forwarded-For {header.CF-Connecting-IP}
+			header_up X-Forwarded-Proto https
 		}
 	}
 
@@ -116,6 +121,7 @@
 			flush_interval -1
 			header_up X-Real-IP {header.CF-Connecting-IP}
 			header_up X-Forwarded-For {header.CF-Connecting-IP}
+			header_up X-Forwarded-Proto https
 		}
 	}
 
@@ -127,6 +133,7 @@
 		reverse_proxy audiobookshelf:80 {
 			header_up X-Real-IP {header.CF-Connecting-IP}
 			header_up X-Forwarded-For {header.CF-Connecting-IP}
+			header_up X-Forwarded-Proto https
 		}
 	}
 
@@ -138,6 +145,7 @@
 		reverse_proxy memos:5230 {
 			header_up X-Real-IP {header.CF-Connecting-IP}
 			header_up X-Forwarded-For {header.CF-Connecting-IP}
+			header_up X-Forwarded-Proto https
 		}
 	}
 
@@ -149,6 +157,7 @@
 		reverse_proxy linkwarden:3000 {
 			header_up X-Real-IP {header.CF-Connecting-IP}
 			header_up X-Forwarded-For {header.CF-Connecting-IP}
+			header_up X-Forwarded-Proto https
 		}
 	}
 
