@@ -35,7 +35,6 @@ services:
       - vaultwarden
       - paperless
       - homepage
-      - stirling-pdf
       - jellyfin
       - audiobookshelf
       - memos
@@ -295,28 +294,6 @@ services:
       retries: 3
 
   # ===========================================
-  # STIRLING-PDF - Manipulation de PDFs
-  # ===========================================
-  stirling-pdf:
-    image: frooodle/s-pdf:latest
-    container_name: stirling-pdf
-    restart: unless-stopped
-    volumes:
-      - stirling_data:/usr/share/tessdata
-      - stirling_config:/configs
-    networks:
-      - frontend
-    environment:
-      - TZ=${TZ}
-      - DOCKER_ENABLE_SECURITY=false
-      - SECURITY_ENABLE_LOGIN=false
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  # ===========================================
   # JELLYFIN - Serveur de medias
   # ===========================================
   jellyfin:
@@ -484,11 +461,6 @@ volumes:
     name: paperless_consume
   paperless_redis_data:
     name: paperless_redis
-  # Stirling PDF
-  stirling_data:
-    name: stirling_data
-  stirling_config:
-    name: stirling_config
   # Jellyfin
   jellyfin_config:
     name: jellyfin_config
