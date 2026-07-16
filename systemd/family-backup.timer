@@ -1,0 +1,12 @@
+[Unit]
+Description=Backup quotidien Family Cloud (04:00)
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+# Persistent : si la machine etait eteinte a 04:00 (ex. coupure), rattrape au boot
+Persistent=true
+# Etale le declenchement pour eviter un pic pile a 04:00
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target

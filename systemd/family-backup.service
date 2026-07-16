@@ -1,0 +1,15 @@
+[Unit]
+Description=Backup Family Cloud vers Cloudflare R2 (chiffre rclone crypt)
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=franck
+Group=franck
+Environment=HOME=/home/franck
+WorkingDirectory=/srv/family_cloud
+ExecStart=/srv/family_cloud/scripts/backup.sh full
+# Garde-fou : coupe si le backup depasse 6h (ex. sync bloque)
+TimeoutStartSec=6h
