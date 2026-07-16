@@ -101,18 +101,6 @@
 	}
 
 	# ===========================================
-	# STIRLING-PDF - pdf.* (Manipulation PDF)
-	# ===========================================
-	@stirling header_regexp host Host ^pdf\.
-	handle @stirling {
-		reverse_proxy stirling-pdf:8080 {
-			header_up X-Real-IP {header.CF-Connecting-IP}
-			header_up X-Forwarded-For {header.CF-Connecting-IP}
-			header_up X-Forwarded-Proto https
-		}
-	}
-
-	# ===========================================
 	# JELLYFIN - media.* (Films & Series)
 	# ===========================================
 	@jellyfin header_regexp host Host ^media\.

@@ -46,9 +46,3 @@
         description: Vaultwarden
         server: my-docker
         container: vaultwarden
-    - PDF:
-        icon: stirling-pdf.png
-        href: https://pdf.fvienot.link
-        description: Stirling PDF
-        server: my-docker
-        container: stirling-pdf
