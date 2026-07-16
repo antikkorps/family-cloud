@@ -10,9 +10,10 @@ secrets/
 logs/
 *.log
 
-# Database dumps
+# Database dumps & archives
 backups/*.sql
 backups/*.sql.gz
+backups/*.tar.gz
 
 # Rclone config
 rclone.conf
