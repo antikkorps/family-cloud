@@ -138,6 +138,7 @@ services:
     restart: unless-stopped
     volumes:
       - seafile_data:/shared
+      - ./scripts/seafile-clean-stale-pids.sh:/etc/my_init.d/00_clean_stale_pids.sh:ro
     networks:
       - frontend
       - backend
