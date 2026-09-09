@@ -46,3 +46,9 @@
         description: Vaultwarden
         server: my-docker
         container: vaultwarden
+    - Favoris:
+        icon: linkwarden.png
+        href: https://links.fvienot.link
+        description: Linkwarden - Favoris & archives
+        server: my-docker
+        container: linkwarden
