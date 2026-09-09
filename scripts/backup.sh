@@ -2,7 +2,7 @@
 # ===========================================
 # Script de Backup Family Cloud vers Cloudflare R2 (chiffre)
 # ===========================================
-# Usage: ./backup.sh [full|immich|seafile|vaultwarden|paperless]
+# Usage: ./backup.sh [full|immich|seafile|vaultwarden|paperless|jellyfin]
 #
 # Chiffrement : rclone crypt (remote "r2-crypt" enveloppant "r2:family-backup").
 #   -> les donnees ET les noms de fichiers sont chiffres cote client avant upload.
@@ -14,6 +14,7 @@
 # - Seafile     : dump MariaDB (VITAL) + archive des blocs de donnees
 # - Vaultwarden : archive du volume
 # - Paperless   : archive data + media
+# - Jellyfin    : archive de la config (comptes, reglages, historique)
 # ===========================================
 
 set -euo pipefail
@@ -213,6 +214,35 @@ backup_paperless() {
 }
 
 # ===========================================
+# Backup Jellyfin  (config + base : reglages, comptes, historique de lecture)
+# ===========================================
+
+backup_jellyfin() {
+    log "=== Backup Jellyfin ==="
+
+    if ! docker ps --format '{{.Names}}' | grep -qx jellyfin; then
+        log "ATTENTION: Conteneur jellyfin non trouve, skip"
+        return 0
+    fi
+
+    # Le volume jellyfin_cache n'est pas sauvegarde (regenerable).
+    # On exclut aussi les logs et les transcodages en cours.
+    log "Archive de la configuration Jellyfin..."
+    docker run --rm \
+        -v jellyfin_config:/source:ro \
+        -v "${BACKUP_PATH}:/backup" \
+        alpine tar czf "/backup/jellyfin_${TIMESTAMP}.tar.gz" \
+        --exclude='./log' --exclude='./transcodes' \
+        -C /source . \
+        || error "Echec du backup Jellyfin"
+    local jf_archive="${BACKUP_PATH}/jellyfin_${TIMESTAMP}.tar.gz"
+    log "Archive Jellyfin creee: $(du -h "$jf_archive" | cut -f1)"
+    upload_to_r2 "$jf_archive" "jellyfin"
+    rm -f "$jf_archive"
+    log "Configuration Jellyfin sauvegardee"
+}
+
+# ===========================================
 # Nettoyage
 # ===========================================
 
@@ -225,7 +255,7 @@ cleanup_local() {
 
 cleanup_r2() {
     log "Nettoyage des backups R2 de plus de ${BACKUP_RETENTION_DAYS} jours..."
-    for path in "immich/database" "seafile/database" "seafile/data" "vaultwarden" "paperless"; do
+    for path in "immich/database" "seafile/database" "seafile/data" "vaultwarden" "paperless" "jellyfin"; do
         rclone delete "${CRYPT_REMOTE}${path}/" \
             --min-age "${BACKUP_RETENTION_DAYS}d" \
             --log-file="$LOG_FILE" --log-level INFO 2>/dev/null || true
@@ -251,14 +281,16 @@ main() {
             backup_seafile
             backup_vaultwarden
             backup_paperless
+            backup_jellyfin
             ;;
         immich|--immich)         backup_immich ;;
         seafile|--seafile)       backup_seafile ;;
         vaultwarden|--vaultwarden) backup_vaultwarden ;;
         paperless|--paperless)   backup_paperless ;;
+        jellyfin|--jellyfin)     backup_jellyfin ;;
         *)
             log "Mode non reconnu: $BACKUP_MODE"
-            log "Modes disponibles: full, immich, seafile, vaultwarden, paperless"
+            log "Modes disponibles: full, immich, seafile, vaultwarden, paperless, jellyfin"
             exit 1
             ;;
     esac
