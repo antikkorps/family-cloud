@@ -8,13 +8,13 @@ Infrastructure self-hosted pour une famille : photos, fichiers, documents, media
 |---------|-------|-----|
 | **Immich** | Photos/Videos | `photos.*` |
 | **Seafile** | Sync de fichiers | `files.*` |
-| **Baikal** | CalDAV/CardDAV | `dav.*` |
 | **Vaultwarden** | Mots de passe | `vault.*` |
 | **Paperless-ngx** | GED / Documents | `docs.*` |
 | **Jellyfin** | Films & Series | `media.*` |
 | **Audiobookshelf** | Audiobooks & Podcasts | `books.*` |
+| **Memos** | Notes & Memos | `notes.*` |
+| **Linkwarden** | Favoris & archives | `links.*` |
 | **Homepage** | Dashboard | `home.*` |
-| **Stirling PDF** | Outils PDF | `pdf.*` |
 
 | Infrastructure | Technologie |
 |----------------|-------------|
@@ -38,10 +38,10 @@ Internet
 ┌─────────────────────────▼───────────────────────────────────┐
 │                    Caddy (Reverse Proxy)                    │
 │   photos.* → Immich       files.* → Seafile                 │
-│   dav.* → Baikal          vault.* → Vaultwarden             │
 │   docs.* → Paperless      media.* → Jellyfin                │
-│   books.* → Audiobookshelf  home.* → Homepage               │
-│   pdf.* → Stirling PDF                                      │
+│   vault.* → Vaultwarden   notes.* → Memos                   │
+│   books.* → Audiobookshelf  links.* → Linkwarden            │
+│   home.* → Homepage                                         │
 └─────────────────────────┬───────────────────────────────────┘
                           │
 ┌─────────────────────────▼───────────────────────────────────┐
@@ -50,7 +50,8 @@ Internet
 │  IMMICH: Server + ML + PostgreSQL + Redis                   │
 │  SEAFILE: Seafile + MariaDB + Memcached                     │
 │  PAPERLESS: Paperless + Redis                               │
-│  JELLYFIN, AUDIOBOOKSHELF, VAULTWARDEN, BAIKAL, etc.        │
+│  LINKWARDEN: Linkwarden + PostgreSQL + Meilisearch          │
+│  JELLYFIN, AUDIOBOOKSHELF, VAULTWARDEN, MEMOS, etc.         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
