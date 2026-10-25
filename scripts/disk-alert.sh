@@ -11,9 +11,13 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
+
 THRESHOLD="${1:-80}"
 DISK_PATH="/mnt/stockage"
-LOG_FILE="/var/log/family-cloud-disk-alert.log"
+LOG_FILE="${LOG_FILE:-${PROJECT_DIR}/logs/disk-alert.log}"
+mkdir -p "$(dirname "$LOG_FILE")"
 
 # Obtenir le pourcentage d'utilisation
 USAGE=$(df -h "$DISK_PATH" 2>/dev/null | awk 'NR==2 {print $5}' | tr -d '%')

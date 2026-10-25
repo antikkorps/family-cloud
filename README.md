@@ -154,13 +154,13 @@ docker compose logs -f
 |---------|-----|---------------|
 | **Immich** | `photos.*` | Creer compte admin au premier acces |
 | **Seafile** | `files.*` | Login avec credentials du `.env` |
-| **Baikal** | `dav.*` | Assistant de configuration |
 | **Vaultwarden** | `vault.*` | Creer compte, admin sur `/admin` |
 | **Paperless** | `docs.*` | Login avec credentials du `.env` |
 | **Jellyfin** | `media.*` | Assistant de configuration |
 | **Audiobookshelf** | `books.*` | Creer compte admin |
 | **Homepage** | `home.*` | Dashboard pre-configure |
-| **Stirling PDF** | `pdf.*` | Pret a l'emploi |
+| **Memos** | `notes.*` | Creer compte admin au premier acces |
+| **Linkwarden** | `links.*` | Inscriptions desactivees (`NEXT_PUBLIC_DISABLE_REGISTRATION`) |
 
 ---
 
@@ -177,12 +177,6 @@ docker compose logs -f
 **Mobile** : Seadrive (Android/iOS)
 **Desktop** : Seafile Client
 - Server: `https://files.votredomaine.com`
-
-### Baikal (CalDAV/CardDAV)
-
-**Android** : DAVx5 (gratuit sur F-Droid)
-**iOS** : Reglages → Calendrier/Contacts → Ajouter compte
-- URL: `https://dav.votredomaine.com`
 
 ### Vaultwarden (Mots de passe)
 
@@ -228,21 +222,28 @@ docker compose logs -f
 # Backup specifique
 ./scripts/backup.sh --immich
 ./scripts/backup.sh --seafile
-./scripts/backup.sh --baikal
 ./scripts/backup.sh --vaultwarden
 ./scripts/backup.sh --paperless
+./scripts/backup.sh --jellyfin
 ```
 
-### Backup Automatique (Cron)
+### Backup Automatique (systemd)
+
+Le backup complet tourne chaque nuit a 04:00 via le timer systemd
+`family-backup.timer` (logs : `journalctl -u family-backup.service`).
+
+```bash
+sudo ./systemd/install-timer.sh
+systemctl list-timers family-backup.timer
+```
+
+### Alerte disque (Cron)
 
 ```bash
 crontab -e
 
-# Backup complet tous les jours a 3h
-0 3 * * * /srv/family_cloud/scripts/backup.sh >> /var/log/family-backup.log 2>&1
-
-# Alerte disque toutes les 6h
-0 */6 * * * /srv/family_cloud/scripts/disk-alert.sh
+# Alerte disque toutes les 6h (log dans logs/disk-alert.log)
+0 */6 * * * /srv/family_cloud/scripts/disk-alert.sh >> /srv/family_cloud/logs/disk-alert.log 2>&1
 ```
 
 ### Restauration

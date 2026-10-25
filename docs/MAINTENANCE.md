@@ -22,7 +22,7 @@ Ajouter dans crontab (`crontab -e`) :
 
 ```bash
 # Alerte si disque > 80%
-0 */6 * * * /srv/family_cloud/scripts/disk-alert.sh
+0 */6 * * * /srv/family_cloud/scripts/disk-alert.sh >> /srv/family_cloud/logs/disk-alert.log 2>&1
 ```
 
 ---

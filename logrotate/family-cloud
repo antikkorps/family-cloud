@@ -1,11 +1,11 @@
-/var/log/family-backup.log
-/var/log/family-disk-alert.log
+/srv/family_cloud/logs/*.log
 {
+    su franck franck
     weekly
     rotate 4
     compress
     delaycompress
     missingok
     notifempty
-    create 0644 root root
+    create 0644 franck franck
 }
