@@ -4,7 +4,8 @@
 # ===========================================
 # Usage: ./health-check.sh
 #
-# Genere un fichier status.json avec l'etat des services.
+# Genere logs/status.json avec l'etat des services
+# (chemin surchargeable via la variable STATUS_FILE).
 # A executer via cron toutes les 5 minutes :
 # */5 * * * * /path/to/health-check.sh
 # ===========================================
@@ -16,8 +17,32 @@ set -euo pipefail
 # ===========================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-STATUS_FILE="/var/log/family-cloud-status.json"
+STATUS_FILE="${STATUS_FILE:-${PROJECT_DIR}/logs/status.json}"
 BACKUP_LOG_DIR="${PROJECT_DIR}/backups"
+
+# Services surveilles, format "conteneur|Libelle|critique"
+# critique = oui : le statut global passe en "degraded" si le service tombe
+SERVICES=(
+    "immich-server|Immich server|oui"
+    "immich-ml|Immich ML|non"
+    "immich-postgres|Immich PostgreSQL|oui"
+    "immich-redis|Immich Redis|non"
+    "seafile|Seafile|oui"
+    "seafile-mariadb|Seafile MariaDB|oui"
+    "seafile-memcached|Seafile Memcached|non"
+    "vaultwarden|Vaultwarden|oui"
+    "paperless|Paperless|oui"
+    "paperless-redis|Paperless Redis|non"
+    "homepage|Homepage|oui"
+    "jellyfin|Jellyfin|oui"
+    "audiobookshelf|Audiobookshelf|oui"
+    "memos|Memos|oui"
+    "linkwarden|Linkwarden|oui"
+    "linkwarden-postgres|Linkwarden PostgreSQL|oui"
+    "linkwarden-meilisearch|Linkwarden Meilisearch|non"
+    "family-caddy|Caddy|oui"
+    "family-cloudflared|Cloudflared|oui"
+)
 
 # ===========================================
 # Fonctions
@@ -26,7 +51,7 @@ BACKUP_LOG_DIR="${PROJECT_DIR}/backups"
 check_service() {
     local container_name="$1"
     if docker ps --format '{{.Names}}' | grep -q "^${container_name}$"; then
-        local health=$(docker inspect --format='{{.State.Health.Status}}' "$container_name" 2>/dev/null || echo "none")
+        local health=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_name" 2>/dev/null || echo "none")
         if [[ "$health" == "healthy" ]] || [[ "$health" == "none" ]]; then
             echo "ok"
         else
@@ -70,43 +95,23 @@ get_load_average() {
 
 main() {
     local timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local overall="ok"
+    local alert_list=()
+    local service_list=()
 
-    # Verifier les services Immich
-    local immich_server=$(check_service "immich-server")
-    local immich_ml=$(check_service "immich-ml")
-    local immich_postgres=$(check_service "immich-postgres")
-    local immich_redis=$(check_service "immich-redis")
-
-    # Verifier les services Seafile
-    local seafile=$(check_service "seafile")
-    local seafile_mariadb=$(check_service "seafile-mariadb")
-    local seafile_memcached=$(check_service "seafile-memcached")
-
-    # Verifier Baikal (CalDAV/CardDAV)
-    local baikal=$(check_service "baikal")
-
-    # Verifier Vaultwarden
-    local vaultwarden=$(check_service "vaultwarden")
-
-    # Verifier Paperless
-    local paperless=$(check_service "paperless")
-    local paperless_redis=$(check_service "paperless-redis")
-
-    # Verifier Homepage
-    local homepage=$(check_service "homepage")
-
-    # Verifier Stirling PDF
-    local stirling=$(check_service "stirling-pdf")
-
-    # Verifier Jellyfin
-    local jellyfin=$(check_service "jellyfin")
-
-    # Verifier Audiobookshelf
-    local audiobookshelf=$(check_service "audiobookshelf")
-
-    # Verifier l'infrastructure
-    local caddy=$(check_service "family-caddy")
-    local cloudflared=$(check_service "family-cloudflared")
+    # Verifier les services
+    local entry name label critical state
+    for entry in "${SERVICES[@]}"; do
+        IFS='|' read -r name label critical <<< "$entry"
+        state=$(check_service "$name")
+        service_list+=("    \"${name}\": \"${state}\"")
+        if [[ "$state" != "ok" ]]; then
+            alert_list+=("\"${label} is ${state}\"")
+            if [[ "$critical" == "oui" ]]; then
+                overall="degraded"
+            fi
+        fi
+    done
 
     # Metriques systeme
     local disk_root=$(get_disk_usage "/")
@@ -116,60 +121,7 @@ main() {
     # Dernier backup
     local last_backup=$(get_last_backup)
 
-    # Statut global
-    local overall="ok"
-    if [[ "$immich_server" != "ok" ]] || \
-       [[ "$seafile" != "ok" ]] || \
-       [[ "$baikal" != "ok" ]] || \
-       [[ "$vaultwarden" != "ok" ]] || \
-       [[ "$paperless" != "ok" ]] || \
-       [[ "$homepage" != "ok" ]] || \
-       [[ "$stirling" != "ok" ]] || \
-       [[ "$jellyfin" != "ok" ]] || \
-       [[ "$audiobookshelf" != "ok" ]] || \
-       [[ "$caddy" != "ok" ]]; then
-        overall="degraded"
-    fi
-
     # Alertes
-    local alert_list=()
-
-    if [[ "$immich_server" != "ok" ]]; then
-        alert_list+=("\"Immich server is ${immich_server}\"")
-    fi
-    if [[ "$immich_postgres" != "ok" ]]; then
-        alert_list+=("\"Immich PostgreSQL is ${immich_postgres}\"")
-    fi
-    if [[ "$seafile" != "ok" ]]; then
-        alert_list+=("\"Seafile is ${seafile}\"")
-    fi
-    if [[ "$seafile_mariadb" != "ok" ]]; then
-        alert_list+=("\"Seafile MariaDB is ${seafile_mariadb}\"")
-    fi
-    if [[ "$baikal" != "ok" ]]; then
-        alert_list+=("\"Baikal is ${baikal}\"")
-    fi
-    if [[ "$vaultwarden" != "ok" ]]; then
-        alert_list+=("\"Vaultwarden is ${vaultwarden}\"")
-    fi
-    if [[ "$paperless" != "ok" ]]; then
-        alert_list+=("\"Paperless is ${paperless}\"")
-    fi
-    if [[ "$homepage" != "ok" ]]; then
-        alert_list+=("\"Homepage is ${homepage}\"")
-    fi
-    if [[ "$stirling" != "ok" ]]; then
-        alert_list+=("\"Stirling PDF is ${stirling}\"")
-    fi
-    if [[ "$jellyfin" != "ok" ]]; then
-        alert_list+=("\"Jellyfin is ${jellyfin}\"")
-    fi
-    if [[ "$audiobookshelf" != "ok" ]]; then
-        alert_list+=("\"Audiobookshelf is ${audiobookshelf}\"")
-    fi
-    if [[ "$caddy" != "ok" ]]; then
-        alert_list+=("\"Caddy is ${caddy}\"")
-    fi
     if [[ "$disk_root" -gt 90 ]]; then
         alert_list+=("\"Disk usage critical: ${disk_root}%\"")
         overall="critical"
@@ -187,38 +139,17 @@ main() {
         alerts=$(printf '%s\n' "${alert_list[@]}" | paste -sd ',' -)
         alerts="[${alerts}]"
     fi
+    local services=$(printf '%s,\n' "${service_list[@]}")
+    services="${services%,}"
 
     # Generer le JSON
+    mkdir -p "$(dirname "$STATUS_FILE")"
     cat > "$STATUS_FILE" << EOF
 {
   "timestamp": "${timestamp}",
   "status": "${overall}",
   "services": {
-    "immich": {
-      "server": "${immich_server}",
-      "ml": "${immich_ml}",
-      "postgres": "${immich_postgres}",
-      "redis": "${immich_redis}"
-    },
-    "seafile": {
-      "app": "${seafile}",
-      "mariadb": "${seafile_mariadb}",
-      "memcached": "${seafile_memcached}"
-    },
-    "baikal": "${baikal}",
-    "vaultwarden": "${vaultwarden}",
-    "paperless": {
-      "app": "${paperless}",
-      "redis": "${paperless_redis}"
-    },
-    "homepage": "${homepage}",
-    "stirling": "${stirling}",
-    "jellyfin": "${jellyfin}",
-    "audiobookshelf": "${audiobookshelf}",
-    "infrastructure": {
-      "caddy": "${caddy}",
-      "cloudflared": "${cloudflared}"
-    }
+${services}
   },
   "metrics": {
     "disk_root_percent": ${disk_root},
