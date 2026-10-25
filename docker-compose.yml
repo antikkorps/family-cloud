@@ -133,7 +133,7 @@ services:
   # SEAFILE - Synchronisation de fichiers
   # ===========================================
   seafile:
-    image: seafileltd/seafile-mc:13.0.12
+    image: seafileltd/seafile-mc:13.0.28
     container_name: seafile
     restart: unless-stopped
     volumes:
@@ -405,7 +405,7 @@ services:
   # MEMOS - Notes & Memos
   # ===========================================
   memos:
-    image: neosmemo/memos:stable
+    image: neosmemo/memos:0.31.0
     container_name: memos
     restart: unless-stopped
     volumes:
